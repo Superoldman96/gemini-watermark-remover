@@ -197,3 +197,43 @@ test('selectInitialCandidate should expose structured provenance for size-jitter
     assert.ok(result.selectedTrial, 'expected size-jitter candidate to be selected');
     assert.equal(result.selectedTrial.provenance?.sizeJitter, true);
 });
+
+test('selectInitialCandidate should skip expensive size-jitter search when the standard candidate already leaves low residual', () => {
+    const alpha96 = createSyntheticAlphaMap(96);
+    const alpha48 = interpolateAlphaMap(alpha96, 96, 48);
+    const imageData = createPatternImageData(320, 320);
+    const config = {
+        logoSize: 48,
+        marginRight: 32,
+        marginBottom: 32
+    };
+    const position = {
+        x: imageData.width - config.marginRight - config.logoSize,
+        y: imageData.height - config.marginBottom - config.logoSize,
+        width: config.logoSize,
+        height: config.logoSize
+    };
+
+    applySyntheticWatermark(imageData, alpha48, position, 1);
+
+    let interpolatedAlphaRequests = 0;
+    const result = selectInitialCandidate({
+        originalImageData: imageData,
+        config,
+        position,
+        alpha48,
+        alpha96,
+        getAlphaMap: (size) => {
+            if (size !== 48 && size !== 96) {
+                interpolatedAlphaRequests += 1;
+            }
+            return interpolateAlphaMap(alpha96, 96, size);
+        },
+        allowAdaptiveSearch: false,
+        alphaGainCandidates: [1]
+    });
+
+    assert.ok(result.selectedTrial, 'expected standard candidate to be selected');
+    assert.equal(interpolatedAlphaRequests, 0);
+    assert.ok(result.source.startsWith('standard'), `source=${result.source}`);
+});

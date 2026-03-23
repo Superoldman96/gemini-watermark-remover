@@ -277,3 +277,25 @@ test('processWatermarkImageData should expose normalized decision tier alongside
         `decisionTier=${result.meta.decisionTier}, source=${result.meta.source}`
     );
 });
+
+test('processWatermarkImageData should avoid expanded alpha-gain search when the first-pass standard candidate is already clean', () => {
+    const alpha96 = createSyntheticAlphaMap(96);
+    const alpha48 = interpolateAlphaMap(alpha96, 96, 48);
+    const imageData = createPatternImageData(320, 320);
+    const position = { x: 320 - 32 - 48, y: 320 - 32 - 48, width: 48, height: 48 };
+    applySyntheticWatermark(imageData, alpha48, position, 1);
+
+    const result = processWatermarkImageData(imageData, {
+        alpha48,
+        alpha96,
+        adaptiveMode: 'never',
+        maxPasses: 1
+    });
+
+    assert.ok(result.meta.applied);
+    assert.equal(result.meta.alphaGain, 1);
+    assert.ok(
+        !String(result.meta.source).includes('+gain'),
+        `expected no expanded gain search, source=${result.meta.source}`
+    );
+});

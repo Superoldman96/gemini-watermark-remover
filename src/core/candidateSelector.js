@@ -24,6 +24,8 @@ const VALIDATION_MIN_IMPROVEMENT = 0.08;
 const VALIDATION_TARGET_RESIDUAL = 0.22;
 const VALIDATION_MAX_GRADIENT_INCREASE = 0.04;
 const VALIDATION_MIN_CONFIDENCE_FOR_ADAPTIVE_TRIAL = 0.25;
+const STANDARD_FAST_PATH_RESIDUAL_THRESHOLD = 0.22;
+const STANDARD_FAST_PATH_GRADIENT_THRESHOLD = 0.08;
 const TEMPLATE_ALIGN_SHIFTS = [-0.5, -0.25, 0, 0.25, 0.5];
 const TEMPLATE_ALIGN_SCALES = [0.99, 1, 1.01];
 const STANDARD_NEARBY_SHIFTS = [-12, -8, -4, 0, 4, 8, 12];
@@ -47,13 +49,16 @@ function buildStandardCandidateSeeds({
     position,
     alpha48,
     alpha96,
-    getAlphaMap
+    getAlphaMap,
+    includeCatalogVariants = true
 }) {
-    const configs = resolveGeminiWatermarkSearchConfigs(
-        originalImageData.width,
-        originalImageData.height,
-        config
-    );
+    const configs = includeCatalogVariants
+        ? resolveGeminiWatermarkSearchConfigs(
+            originalImageData.width,
+            originalImageData.height,
+            config
+        )
+        : [config];
     const seeds = [];
 
     for (const candidateConfig of configs) {
@@ -99,6 +104,13 @@ function inferDecisionTier(candidate, { directMatch = false } = {}) {
     if (candidate.source?.includes('validated')) return 'validated-match';
     if (candidate.accepted) return 'validated-match';
     return 'safe-removal';
+}
+
+function shouldEscalateSearch(candidate) {
+    if (!candidate) return true;
+
+    return Math.abs(candidate.processedSpatialScore) > STANDARD_FAST_PATH_RESIDUAL_THRESHOLD ||
+        Math.max(0, candidate.processedGradientScore) > STANDARD_FAST_PATH_GRADIENT_THRESHOLD;
 }
 
 export function resolveAlphaMapForSize(size, { alpha48, alpha96, getAlphaMap } = {}) {
@@ -375,15 +387,16 @@ export function selectInitialCandidate({
     alphaGainCandidates
 }) {
     let alphaMap = config.logoSize === 96 ? alpha96 : alpha48;
-    const standardCandidateSeeds = buildStandardCandidateSeeds({
+    let standardCandidateSeeds = buildStandardCandidateSeeds({
         originalImageData,
         config,
         position,
         alpha48,
         alpha96,
-        getAlphaMap
+        getAlphaMap,
+        includeCatalogVariants: false
     });
-    const standardTrials = standardCandidateSeeds
+    let standardTrials = standardCandidateSeeds
         .map((seed) => evaluateRestorationCandidate({
             originalImageData,
             alphaMap: seed.alphaMap,
@@ -394,13 +407,47 @@ export function selectInitialCandidate({
             provenance: seed.provenance
         }))
         .filter(Boolean);
-    const standardTrial = standardTrials.find((candidate) => candidate.source === 'standard') ?? standardTrials[0] ?? null;
-    const standardSpatialScore = standardTrial?.originalSpatialScore ?? null;
-    const standardGradientScore = standardTrial?.originalGradientScore ?? null;
-    const hasReliableStandardMatch = hasReliableStandardWatermarkSignal({
+    let standardTrial = standardTrials.find((candidate) => candidate.source === 'standard') ?? standardTrials[0] ?? null;
+    let standardSpatialScore = standardTrial?.originalSpatialScore ?? null;
+    let standardGradientScore = standardTrial?.originalGradientScore ?? null;
+    let hasReliableStandardMatch = hasReliableStandardWatermarkSignal({
         spatialScore: standardSpatialScore,
         gradientScore: standardGradientScore
     });
+
+    const shouldExpandStandardCatalog =
+        !hasReliableStandardMatch &&
+        (!standardTrial || shouldEscalateSearch(standardTrial));
+
+    if (shouldExpandStandardCatalog) {
+        standardCandidateSeeds = buildStandardCandidateSeeds({
+            originalImageData,
+            config,
+            position,
+            alpha48,
+            alpha96,
+            getAlphaMap,
+            includeCatalogVariants: true
+        });
+        standardTrials = standardCandidateSeeds
+            .map((seed) => evaluateRestorationCandidate({
+                originalImageData,
+                alphaMap: seed.alphaMap,
+                position: seed.position,
+                source: seed.source,
+                config: seed.config,
+                baselineNearBlackRatio: calculateNearBlackRatio(originalImageData, seed.position),
+                provenance: seed.provenance
+            }))
+            .filter(Boolean);
+        standardTrial = standardTrials.find((candidate) => candidate.source === 'standard') ?? standardTrials[0] ?? null;
+        standardSpatialScore = standardTrial?.originalSpatialScore ?? null;
+        standardGradientScore = standardTrial?.originalGradientScore ?? null;
+        hasReliableStandardMatch = hasReliableStandardWatermarkSignal({
+            spatialScore: standardSpatialScore,
+            gradientScore: standardGradientScore
+        });
+    }
 
     let adaptive = null;
     let adaptiveConfidence = null;
@@ -500,7 +547,7 @@ export function selectInitialCandidate({
         }
     }
 
-    if (baseDecisionTier !== 'direct-match') {
+    if (baseDecisionTier !== 'direct-match' && shouldEscalateSearch(baseCandidate)) {
         const sizeJitterCandidate = searchStandardSizeJitterCandidate({
             originalImageData,
             candidateSeeds: standardCandidateSeeds,
@@ -523,6 +570,7 @@ export function selectInitialCandidate({
     const shouldEvaluateAdaptive = () => {
         if (!allowAdaptiveSearch || !alpha96) return false;
         if (!baseCandidate) return true;
+        if (!shouldEscalateSearch(baseCandidate)) return false;
 
         return shouldAttemptAdaptiveFallback({
             processedImageData: baseCandidate.imageData,
@@ -634,19 +682,21 @@ export function selectInitialCandidate({
     }
 
     let bestGainTrial = selectedTrial;
-    for (const candidateGain of alphaGainCandidates) {
-        const gainTrial = evaluateRestorationCandidate({
-            originalImageData,
-            alphaMap,
-            position,
-            source: `${source}+gain`,
-            config,
-            baselineNearBlackRatio: calculateNearBlackRatio(originalImageData, position),
-            adaptiveConfidence,
-            alphaGain: candidateGain,
-            provenance: selectedTrial.provenance
-        });
-        bestGainTrial = pickBetterCandidate(bestGainTrial, gainTrial);
+    if (shouldEscalateSearch(selectedTrial)) {
+        for (const candidateGain of alphaGainCandidates) {
+            const gainTrial = evaluateRestorationCandidate({
+                originalImageData,
+                alphaMap,
+                position,
+                source: `${source}+gain`,
+                config,
+                baselineNearBlackRatio: calculateNearBlackRatio(originalImageData, position),
+                adaptiveConfidence,
+                alphaGain: candidateGain,
+                provenance: selectedTrial.provenance
+            });
+            bestGainTrial = pickBetterCandidate(bestGainTrial, gainTrial);
+        }
     }
     if (bestGainTrial !== selectedTrial) {
         selectedTrial = bestGainTrial;
