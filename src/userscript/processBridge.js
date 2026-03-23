@@ -1,12 +1,9 @@
+import { normalizeErrorMessage } from '../shared/errorUtils.js';
+
 export const USERSCRIPT_PROCESS_REQUEST = 'gwr:userscript-process-request';
 export const USERSCRIPT_PROCESS_RESPONSE = 'gwr:userscript-process-response';
 
 const USERSCRIPT_PROCESS_BRIDGE_FLAG = '__gwrUserscriptProcessBridgeInstalled__';
-
-function normalizeErrorMessage(error) {
-  if (error instanceof Error) return error.message;
-  return String(error || 'Userscript bridge failed');
-}
 
 function buildBlobResult(processedBlob, processedMeta = null) {
   return {
@@ -89,7 +86,7 @@ export function createUserscriptProcessBridgeServer({
         requestId,
         ok: false,
         action,
-        error: normalizeErrorMessage(error)
+        error: normalizeErrorMessage(error, 'Userscript bridge failed')
       }, '*');
     }
   };
@@ -183,7 +180,7 @@ export function createUserscriptProcessBridgeClient({
 
           cleanup();
           if (event.data.ok === false) {
-            reject(new Error(normalizeErrorMessage(event.data.error)));
+            reject(new Error(normalizeErrorMessage(event.data.error, 'Userscript bridge failed')));
             return;
           }
           resolve(createBlobResultFromResponse(event.data.result));
