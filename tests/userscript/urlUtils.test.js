@@ -50,6 +50,18 @@ test('normalizeGoogleusercontentImageUrl should normalize Gemini tiered gg downl
     assert.equal(out, 'https://lh3.googleusercontent.com/gg-premium-dl/example-token=s0-rj');
 });
 
+test('normalizeGoogleusercontentImageUrl should normalize Gemini native download token urls with d-I suffix', () => {
+    const input = 'https://lh3.googleusercontent.com/gg/example-token=d-I?alr=yes';
+    const out = normalizeGoogleusercontentImageUrl(input);
+    assert.equal(out, 'https://lh3.googleusercontent.com/gg/example-token=s0-d-I?alr=yes');
+});
+
+test('normalizeGoogleusercontentImageUrl should normalize Gemini native download token urls with d suffix', () => {
+    const input = 'https://lh3.googleusercontent.com/gg/example-token=d';
+    const out = normalizeGoogleusercontentImageUrl(input);
+    assert.equal(out, 'https://lh3.googleusercontent.com/gg/example-token=s0-d');
+});
+
 test('normalizeGoogleusercontentImageUrl should replace width-height transform at tail', () => {
     const input = 'https://lh3.googleusercontent.com/rd-gg/abc123=w2048-h2048';
     const out = normalizeGoogleusercontentImageUrl(input);

@@ -71,6 +71,25 @@ function buildProcessedResponse(response, blob) {
   });
 }
 
+function isImageResponse(response) {
+  const contentType = response?.headers?.get?.('content-type') || '';
+  if (!contentType) {
+    return true;
+  }
+  return /^image\//i.test(contentType);
+}
+
+function serializeResponseHeaders(headers) {
+  const entries = {};
+  if (!headers || typeof headers.forEach !== 'function') {
+    return entries;
+  }
+  headers.forEach((value, key) => {
+    entries[key] = value;
+  });
+  return entries;
+}
+
 export function createGeminiDownloadFetchHook({
   originalFetch,
   isTargetUrl,
@@ -109,6 +128,9 @@ export function createGeminiDownloadFetchHook({
     if (!response?.ok) {
       return response;
     }
+    if (!isImageResponse(response)) {
+      return response;
+    }
 
     const fallbackResponse = typeof response.clone === 'function' ? response.clone() : response;
 
@@ -119,7 +141,9 @@ export function createGeminiDownloadFetchHook({
           .then((blob) => processBlob(blob, {
             url,
             normalizedUrl,
-            response
+            responseStatus: response.status,
+            responseStatusText: response.statusText,
+            responseHeaders: serializeResponseHeaders(response.headers)
           }))
           .finally(() => {
             if (cache.get(normalizedUrl) === pendingBlob) {

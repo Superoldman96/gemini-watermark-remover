@@ -2,14 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-test('userscript entry should install both download hook and page image replacement', () => {
+test('userscript entry should install download hook and page image replacement without default active click interception', () => {
   const source = readFileSync(new URL('../../src/userscript/index.js', import.meta.url), 'utf8');
 
   assert.doesNotMatch(source, /MutationObserver/);
   assert.doesNotMatch(source, /querySelectorAll\('img/);
   assert.doesNotMatch(source, /imgElement\.src\s*=\s*''/);
   assert.match(source, /installGeminiDownloadHook/);
-  assert.match(source, /installGeminiDownloadClickHandler/);
+  assert.doesNotMatch(source, /installGeminiDownloadClickHandler\(/);
   assert.match(source, /installPageImageReplacement/);
   assert.match(source, /installUserscriptProcessBridge/);
   assert.match(source, /createUserscriptProcessBridgeClient/);
@@ -40,7 +40,7 @@ test('userscript entry should route preview processing through the shared bridge
 
   assert.match(source, /processWatermarkBlobImpl:\s*bridgeClient\.processWatermarkBlob/);
   assert.match(source, /removeWatermarkFromBlobImpl:\s*bridgeClient\.removeWatermarkFromBlob/);
-  assert.match(source, /processBlob:\s*bridgeClient\.removeWatermarkFromBlob/);
+  assert.match(source, /processBlob:\s*processingRuntime\.removeWatermarkFromBlob/);
 });
 
 test('userscript entry should delegate watermark runtime logic to processingRuntime module', () => {

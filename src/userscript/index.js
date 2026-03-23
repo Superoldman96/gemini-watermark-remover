@@ -1,6 +1,5 @@
 import { installPageImageReplacement } from '../shared/pageImageReplacement.js';
 import { installGeminiDownloadHook } from './downloadHook.js';
-import { installGeminiDownloadClickHandler } from './downloadClick.js';
 import { createUserscriptBlobFetcher } from './crossOriginFetch.js';
 import {
   createUserscriptProcessBridgeClient,
@@ -53,14 +52,7 @@ const USERSCRIPT_WORKER_CODE = typeof __US_WORKER_CODE__ === 'string' ? __US_WOR
     installGeminiDownloadHook(targetWindow, {
       isTargetUrl: isGeminiGeneratedAssetUrl,
       normalizeUrl: normalizeGoogleusercontentImageUrl,
-      processBlob: bridgeClient.removeWatermarkFromBlob,
-      logger: console
-    });
-
-    installGeminiDownloadClickHandler({
-      targetDocument: targetWindow.document || document,
-      fetchPreviewBlob: previewBlobFetcher,
-      removeWatermarkFromBlobImpl: bridgeClient.removeWatermarkFromBlob,
+      processBlob: processingRuntime.removeWatermarkFromBlob,
       logger: console
     });
 

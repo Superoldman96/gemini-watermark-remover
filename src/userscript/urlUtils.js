@@ -96,6 +96,12 @@ export function normalizeGoogleusercontentImageUrl(url) {
       return parsed.toString();
     }
 
+    const nativeDownloadSuffixAtTail = /=(?:d|d-I)$/i;
+    if (nativeDownloadSuffixAtTail.test(path)) {
+      parsed.pathname = path.replace(nativeDownloadSuffixAtTail, (match) => `=s0-${match.slice(1)}`);
+      return parsed.toString();
+    }
+
     const sizeTransformAtTail = /=(?:s|w|h)\d+([^/]*)$/i;
     if (sizeTransformAtTail.test(path)) {
       parsed.pathname = path.replace(sizeTransformAtTail, '=s0$1');

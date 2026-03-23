@@ -60,6 +60,63 @@ test('createGeminiDownloadFetchHook should normalize Gemini asset url and replac
   assert.equal(response.headers.get('content-type'), 'image/png');
 });
 
+test('createGeminiDownloadFetchHook should pass a serializable processing context without the raw Response object', async () => {
+  const originalFetch = async () => new Response(new Blob(['original'], { type: 'image/png' }), {
+    status: 200,
+    statusText: 'OK',
+    headers: { 'content-type': 'image/png', 'x-source': 'origin' }
+  });
+
+  let seenContext = null;
+  const hook = createGeminiDownloadFetchHook({
+    originalFetch,
+    isTargetUrl: () => true,
+    normalizeUrl: () => 'https://lh3.googleusercontent.com/gg/token=s0-d-I?alr=yes',
+    processBlob: async (_blob, context) => {
+      seenContext = context;
+      return new Blob(['processed'], { type: 'image/png' });
+    }
+  });
+
+  await hook('https://lh3.googleusercontent.com/gg/token=d-I?alr=yes');
+
+  assert.deepEqual(seenContext, {
+    url: 'https://lh3.googleusercontent.com/gg/token=d-I?alr=yes',
+    normalizedUrl: 'https://lh3.googleusercontent.com/gg/token=s0-d-I?alr=yes',
+    responseStatus: 200,
+    responseStatusText: 'OK',
+    responseHeaders: {
+      'content-type': 'image/png',
+      'x-source': 'origin'
+    }
+  });
+});
+
+test('createGeminiDownloadFetchHook should bypass non-image Gemini responses', async () => {
+  let processCalls = 0;
+  const originalFetch = async () => new Response('https://lh3.google.com/rd-gg/token=s0-d-I?alr=yes', {
+    status: 200,
+    statusText: 'OK',
+    headers: { 'content-type': 'text/plain; charset=UTF-8' }
+  });
+
+  const hook = createGeminiDownloadFetchHook({
+    originalFetch,
+    isTargetUrl: () => true,
+    normalizeUrl: () => 'https://lh3.googleusercontent.com/gg/token=s0-d-I?alr=yes',
+    processBlob: async () => {
+      processCalls += 1;
+      return new Blob(['processed'], { type: 'image/png' });
+    }
+  });
+
+  const response = await hook('https://lh3.googleusercontent.com/gg/token=s0-d-I?alr=yes');
+
+  assert.equal(processCalls, 0);
+  assert.equal(response.headers.get('content-type'), 'text/plain; charset=UTF-8');
+  assert.equal(await response.text(), 'https://lh3.google.com/rd-gg/token=s0-d-I?alr=yes');
+});
+
 test('createGeminiDownloadFetchHook should fall back to original response when processing fails', async () => {
   const originalFetch = async () => new Response(new Blob(['original'], { type: 'image/png' }), {
     status: 200,
