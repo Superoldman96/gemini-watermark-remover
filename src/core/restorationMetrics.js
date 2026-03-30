@@ -69,6 +69,10 @@ function calculateRegionTextureStats(imageData, region) {
     };
 }
 
+export function getRegionTextureStats(imageData, region) {
+    return calculateRegionTextureStats(imageData, region);
+}
+
 function getReferenceRegion(position, imageData) {
     const referenceY = position.y - position.height;
     if (referenceY < 0) return null;
@@ -87,15 +91,30 @@ export function assessReferenceTextureAlignment({
     candidateImageData,
     position
 }) {
+    const candidateTextureStats = candidateImageData
+        ? calculateRegionTextureStats(candidateImageData, position)
+        : null;
+
+    return assessReferenceTextureAlignmentFromStats({
+        originalImageData,
+        referenceImageData,
+        candidateTextureStats,
+        position
+    });
+}
+
+export function assessReferenceTextureAlignmentFromStats({
+    originalImageData,
+    referenceImageData,
+    candidateTextureStats,
+    position
+}) {
     const resolvedReferenceImageData = referenceImageData ?? originalImageData;
     const referenceRegion = resolvedReferenceImageData
         ? getReferenceRegion(position, resolvedReferenceImageData)
         : null;
     const referenceTextureStats = referenceRegion
         ? calculateRegionTextureStats(resolvedReferenceImageData, referenceRegion)
-        : null;
-    const candidateTextureStats = referenceTextureStats
-        ? calculateRegionTextureStats(candidateImageData, position)
         : null;
     const darknessPenalty = referenceTextureStats && candidateTextureStats
         ? Math.max(0, referenceTextureStats.meanLum - candidateTextureStats.meanLum - TEXTURE_REFERENCE_MARGIN) /

@@ -52,6 +52,16 @@ async function fetchBlobWithUserscriptRequest(gmRequest, url) {
   });
 }
 
+function isCrossOriginGoogleusercontentUrl(url) {
+  try {
+    const parsedUrl = new URL(String(url || ''));
+    return /^https?:$/i.test(parsedUrl.protocol)
+      && /(^|\.)googleusercontent\.com$/i.test(parsedUrl.hostname);
+  } catch {
+    return false;
+  }
+}
+
 export function createUserscriptBlobFetcher({
   gmRequest = globalThis.GM_xmlhttpRequest,
   fallbackFetch = globalThis.fetch?.bind(globalThis) || null
@@ -59,6 +69,10 @@ export function createUserscriptBlobFetcher({
   return async function fetchPreviewBlob(url) {
     if (typeof gmRequest === 'function') {
       return fetchBlobWithUserscriptRequest(gmRequest, url);
+    }
+
+    if (isCrossOriginGoogleusercontentUrl(url)) {
+      throw new Error('Cross-origin preview fetch requires GM_xmlhttpRequest');
     }
 
     if (typeof fallbackFetch === 'function') {

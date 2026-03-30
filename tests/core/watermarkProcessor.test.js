@@ -227,6 +227,77 @@ test('processWatermarkImageData should recover small default-anchor size drift w
     );
 });
 
+test('processWatermarkImageData should recover preview-sized bottom-right watermark without adaptive search', () => {
+    const alpha96 = createSyntheticAlphaMap(96);
+    const alpha48 = interpolateAlphaMap(alpha96, 96, 48);
+    const alpha34 = interpolateAlphaMap(alpha96, 96, 34);
+    const imageData = createPatternImageData(1024, 559);
+    const truePosition = {
+        x: 1024 - 24 - 34,
+        y: 559 - 24 - 34,
+        width: 34,
+        height: 34
+    };
+    applySyntheticWatermark(imageData, alpha34, truePosition, 1);
+
+    const result = processWatermarkImageData(imageData, {
+        alpha48,
+        alpha96,
+        adaptiveMode: 'never',
+        maxPasses: 1,
+        getAlphaMap: (size) => interpolateAlphaMap(alpha96, 96, size)
+    });
+
+    const residual = computeRegionSpatialCorrelation({
+        imageData: result.imageData,
+        alphaMap: alpha34,
+        region: { x: truePosition.x, y: truePosition.y, size: truePosition.width }
+    });
+
+    assert.ok(result.meta.applied, `skipReason=${result.meta.skipReason}`);
+    assert.ok(
+        result.meta.source.startsWith('standard+preview-anchor'),
+        `expected preview anchor recovery, got ${result.meta.source}`
+    );
+    assert.equal(result.meta.position.width, truePosition.width);
+    assert.equal(result.meta.position.x, truePosition.x);
+    assert.equal(result.meta.position.y, truePosition.y);
+    assert.ok(
+        residual < 0.22,
+        `expected preview-anchor residual < 0.22, got ${residual}, source=${result.meta.source}`
+    );
+});
+
+test('processWatermarkImageData should default preview-fast profile to a single pass', () => {
+    const alpha96 = createSyntheticAlphaMap(96);
+    const alpha48 = interpolateAlphaMap(alpha96, 96, 48);
+    const alpha34 = interpolateAlphaMap(alpha96, 96, 34);
+    const imageData = createPatternImageData(1024, 559);
+    const truePosition = {
+        x: 1024 - 24 - 34,
+        y: 559 - 24 - 34,
+        width: 34,
+        height: 34
+    };
+    applySyntheticWatermark(imageData, alpha34, truePosition, 2);
+
+    const result = processWatermarkImageData(imageData, {
+        alpha48,
+        alpha96,
+        adaptiveMode: 'never',
+        processingProfile: 'preview-fast',
+        getAlphaMap: (size) => interpolateAlphaMap(alpha96, 96, size)
+    });
+
+    assert.ok(result.meta.applied, `skipReason=${result.meta.skipReason}`);
+    assert.equal(result.meta.passCount, 1, `passCount=${result.meta.passCount}`);
+    assert.equal(result.meta.attemptedPassCount, 1, `attemptedPassCount=${result.meta.attemptedPassCount}`);
+    assert.ok(
+        !String(result.meta.source).includes('+multipass'),
+        `expected preview-fast profile to skip multipass, source=${result.meta.source}`
+    );
+});
+
 test('processWatermarkImageData should expose candidate selection debug summary in meta', () => {
     const alpha96 = createSyntheticAlphaMap(96);
     const alpha48 = interpolateAlphaMap(alpha96, 96, 48);
@@ -298,4 +369,33 @@ test('processWatermarkImageData should avoid expanded alpha-gain search when the
         !String(result.meta.source).includes('+gain'),
         `expected no expanded gain search, source=${result.meta.source}`
     );
+});
+
+test('processWatermarkImageData should expose stage timings when debugTimings is enabled', () => {
+    const alpha96 = createSyntheticAlphaMap(96);
+    const alpha48 = interpolateAlphaMap(alpha96, 96, 48);
+    const alpha34 = interpolateAlphaMap(alpha96, 96, 34);
+    const imageData = createPatternImageData(1024, 559);
+    const truePosition = {
+        x: 1024 - 24 - 34,
+        y: 559 - 24 - 34,
+        width: 34,
+        height: 34
+    };
+    applySyntheticWatermark(imageData, alpha34, truePosition, 1);
+
+    const result = processWatermarkImageData(imageData, {
+        alpha48,
+        alpha96,
+        adaptiveMode: 'never',
+        processingProfile: 'preview-fast',
+        debugTimings: true,
+        getAlphaMap: (size) => interpolateAlphaMap(alpha96, 96, size)
+    });
+
+    assert.ok(result.debugTimings, 'expected debugTimings to be present');
+    assert.equal(typeof result.debugTimings.initialSelectionMs, 'number');
+    assert.equal(typeof result.debugTimings.firstPassMetricsMs, 'number');
+    assert.equal(typeof result.debugTimings.totalMs, 'number');
+    assert.ok(result.debugTimings.totalMs >= result.debugTimings.initialSelectionMs);
 });

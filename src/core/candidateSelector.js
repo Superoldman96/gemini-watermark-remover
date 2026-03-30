@@ -9,8 +9,10 @@ import {
 } from './adaptiveDetector.js';
 import {
     assessReferenceTextureAlignment,
+    assessReferenceTextureAlignmentFromStats,
     calculateNearBlackRatio,
     cloneImageData,
+    getRegionTextureStats,
     scoreRegion
 } from './restorationMetrics.js';
 import {
@@ -30,8 +32,24 @@ const TEMPLATE_ALIGN_SHIFTS = [-0.5, -0.25, 0, 0.25, 0.5];
 const TEMPLATE_ALIGN_SCALES = [0.99, 1, 1.01];
 const STANDARD_NEARBY_SHIFTS = [-12, -8, -4, 0, 4, 8, 12];
 const STANDARD_SIZE_JITTERS = [-12, -10, -8, -6, -4, -2, 2, 4, 6, 8, 10, 12];
+const PREVIEW_ANCHOR_MIN_SIZE = 24;
+const PREVIEW_ANCHOR_MAX_SIZE_RATIO = 1.05;
+const PREVIEW_ANCHOR_MIN_SIZE_RATIO = 0.55;
+const PREVIEW_ANCHOR_MARGIN_WINDOW = 16;
+const PREVIEW_ANCHOR_MARGIN_EXTENSION = 8;
+const PREVIEW_ANCHOR_SIZE_STEP = 2;
+const PREVIEW_ANCHOR_MARGIN_STEP = 2;
+const PREVIEW_ANCHOR_TOP_K = 8;
+const PREVIEW_ANCHOR_MIN_SCORE = 0.2;
+const PREVIEW_ANCHOR_LOCAL_DELTAS = [-1, 0, 1];
+const PREVIEW_TEMPLATE_ALIGN_SHIFTS = [-1, -0.5, 0, 0.5, 1];
+const PREVIEW_TEMPLATE_ALIGN_SCALES = [0.985, 1, 1.015];
+const PREVIEW_FAST_GAIN_SKIP_RESIDUAL_THRESHOLD = 0.22;
+const PREVIEW_FAST_GAIN_SKIP_GRADIENT_THRESHOLD = 0.24;
 
 export { assessReferenceTextureAlignment, calculateNearBlackRatio, scoreRegion } from './restorationMetrics.js';
+
+const ORIGIN_REGION = Object.freeze({ x: 0, y: 0 });
 
 function mergeCandidateProvenance(...provenanceParts) {
     const merged = {};
@@ -50,6 +68,7 @@ function buildStandardCandidateSeeds({
     alpha48,
     alpha96,
     getAlphaMap,
+    resolveAlphaMap = null,
     includeCatalogVariants = true
 }) {
     const configs = includeCatalogVariants
@@ -79,11 +98,13 @@ function buildStandardCandidateSeeds({
             continue;
         }
 
-        const alphaMap = resolveAlphaMapForSize(candidateConfig.logoSize, {
-            alpha48,
-            alpha96,
-            getAlphaMap
-        });
+        const alphaMap = typeof resolveAlphaMap === 'function'
+            ? resolveAlphaMap(candidateConfig.logoSize)
+            : resolveAlphaMapForSize(candidateConfig.logoSize, {
+                alpha48,
+                alpha96,
+                getAlphaMap
+            });
         if (!alphaMap) continue;
 
         seeds.push({
@@ -123,6 +144,31 @@ export function resolveAlphaMapForSize(size, { alpha48, alpha96, getAlphaMap } =
     return alpha96 ? interpolateAlphaMap(alpha96, 96, size) : null;
 }
 
+function createAlphaMapResolver({ alpha48, alpha96, getAlphaMap }) {
+    const cache = new Map();
+
+    return (size) => {
+        if (cache.has(size)) {
+            return cache.get(size);
+        }
+
+        const resolved = resolveAlphaMapForSize(size, {
+            alpha48,
+            alpha96,
+            getAlphaMap
+        });
+        cache.set(size, resolved);
+        return resolved;
+    };
+}
+
+function isPreviewFastGainSearchRequired(candidate) {
+    if (!candidate) return true;
+
+    return Math.abs(candidate.processedSpatialScore) > PREVIEW_FAST_GAIN_SKIP_RESIDUAL_THRESHOLD ||
+        Math.max(0, candidate.processedGradientScore) > PREVIEW_FAST_GAIN_SKIP_GRADIENT_THRESHOLD;
+}
+
 export function evaluateRestorationCandidate({
     originalImageData,
     alphaMap,
@@ -132,23 +178,34 @@ export function evaluateRestorationCandidate({
     baselineNearBlackRatio,
     adaptiveConfidence = null,
     alphaGain = 1,
-    provenance = null
+    provenance = null,
+    includeImageData = true
 }) {
     if (!alphaMap || !position) return null;
 
     const originalScores = scoreRegion(originalImageData, alphaMap, position);
-    const candidateImageData = cloneImageData(originalImageData);
-    removeWatermark(candidateImageData, alphaMap, position, { alphaGain });
-
-    const processedScores = scoreRegion(candidateImageData, alphaMap, position);
-    const nearBlackRatio = calculateNearBlackRatio(candidateImageData, position);
+    const regionImageData = createCandidateRegionImageData({
+        originalImageData,
+        alphaMap,
+        position,
+        alphaGain
+    });
+    const regionPosition = {
+        x: ORIGIN_REGION.x,
+        y: ORIGIN_REGION.y,
+        width: position.width,
+        height: position.height
+    };
+    const processedScores = scoreRegion(regionImageData, alphaMap, regionPosition);
+    const nearBlackRatio = calculateNearBlackRatio(regionImageData, regionPosition);
     const nearBlackIncrease = nearBlackRatio - baselineNearBlackRatio;
     // Signed suppression keeps legitimate "slight overshoot" restores eligible.
     const improvement = originalScores.spatialScore - processedScores.spatialScore;
     const gradientIncrease = processedScores.gradientScore - originalScores.gradientScore;
-    const textureAssessment = assessReferenceTextureAlignment({
+    const textureAssessment = assessReferenceTextureAlignmentFromStats({
+        originalImageData,
         referenceImageData: originalImageData,
-        candidateImageData,
+        candidateTextureStats: getRegionTextureStats(regionImageData, regionPosition),
         position
     });
     const texturePenalty = textureAssessment.texturePenalty;
@@ -170,7 +227,9 @@ export function evaluateRestorationCandidate({
         adaptiveConfidence,
         alphaGain,
         provenance: mergeCandidateProvenance(provenance),
-        imageData: candidateImageData,
+        imageData: includeImageData
+            ? materializeCandidateImageData(originalImageData, alphaMap, position, alphaGain)
+            : null,
         originalSpatialScore: originalScores.spatialScore,
         originalGradientScore: originalScores.gradientScore,
         processedSpatialScore: processedScores.spatialScore,
@@ -206,6 +265,56 @@ export function pickBestValidatedCandidate(candidates) {
     return accepted[0];
 }
 
+function createCandidateRegionImageData({
+    originalImageData,
+    alphaMap,
+    position,
+    alphaGain
+}) {
+    const regionImageData = {
+        width: position.width,
+        height: position.height,
+        data: new Uint8ClampedArray(position.width * position.height * 4)
+    };
+
+    for (let row = 0; row < position.height; row++) {
+        const srcStart = ((position.y + row) * originalImageData.width + position.x) * 4;
+        const srcEnd = srcStart + position.width * 4;
+        const destStart = row * position.width * 4;
+        regionImageData.data.set(originalImageData.data.subarray(srcStart, srcEnd), destStart);
+    }
+
+    removeWatermark(regionImageData, alphaMap, {
+        x: 0,
+        y: 0,
+        width: position.width,
+        height: position.height
+    }, { alphaGain });
+
+    return regionImageData;
+}
+
+function materializeCandidateImageData(originalImageData, alphaMap, position, alphaGain) {
+    const candidateImageData = cloneImageData(originalImageData);
+    removeWatermark(candidateImageData, alphaMap, position, { alphaGain });
+    return candidateImageData;
+}
+
+function ensureCandidateImageData(candidate, originalImageData) {
+    if (!candidate) return candidate;
+    if (candidate.imageData) return candidate;
+
+    return {
+        ...candidate,
+        imageData: materializeCandidateImageData(
+            originalImageData,
+            candidate.alphaMap,
+            candidate.position,
+            candidate.alphaGain ?? 1
+        )
+    };
+}
+
 export function pickBetterCandidate(currentBest, candidate, minCostDelta = 0.005) {
     if (!candidate?.accepted) return currentBest;
     if (!currentBest) return candidate;
@@ -224,7 +333,9 @@ export function findBestTemplateWarp({
     alphaMap,
     position,
     baselineSpatialScore,
-    baselineGradientScore
+    baselineGradientScore,
+    shiftCandidates = TEMPLATE_ALIGN_SHIFTS,
+    scaleCandidates = TEMPLATE_ALIGN_SCALES
 }) {
     const size = position.width;
     if (!size || size <= 8) return null;
@@ -236,9 +347,9 @@ export function findBestTemplateWarp({
         alphaMap
     };
 
-    for (const scale of TEMPLATE_ALIGN_SCALES) {
-        for (const dy of TEMPLATE_ALIGN_SHIFTS) {
-            for (const dx of TEMPLATE_ALIGN_SHIFTS) {
+    for (const scale of scaleCandidates) {
+        for (const dy of shiftCandidates) {
+            for (const dx of shiftCandidates) {
                 if (dx === 0 && dy === 0 && scale === 1) continue;
                 const warped = warpAlphaMap(alphaMap, size, { dx, dy, scale });
                 const spatialScore = computeRegionSpatialCorrelation({
@@ -307,7 +418,8 @@ function searchNearbyStandardCandidate({
                     config: seed.config,
                     baselineNearBlackRatio: calculateNearBlackRatio(originalImageData, candidatePosition),
                     adaptiveConfidence,
-                    provenance: mergeCandidateProvenance(seed.provenance, { localShift: true })
+                    provenance: mergeCandidateProvenance(seed.provenance, { localShift: true }),
+                    includeImageData: false
                 });
 
                 if (!candidate?.accepted) continue;
@@ -325,6 +437,7 @@ function searchStandardSizeJitterCandidate({
     alpha48,
     alpha96,
     getAlphaMap,
+    resolveAlphaMap = null,
     adaptiveConfidence = null
 }) {
     if (!Array.isArray(candidateSeeds) || candidateSeeds.length === 0) return null;
@@ -346,11 +459,13 @@ function searchStandardSizeJitterCandidate({
             if (candidatePosition.x + candidatePosition.width > originalImageData.width) continue;
             if (candidatePosition.y + candidatePosition.height > originalImageData.height) continue;
 
-            const candidateAlphaMap = resolveAlphaMapForSize(size, {
-                alpha48,
-                alpha96,
-                getAlphaMap
-            });
+            const candidateAlphaMap = typeof resolveAlphaMap === 'function'
+                ? resolveAlphaMap(size)
+                : resolveAlphaMapForSize(size, {
+                    alpha48,
+                    alpha96,
+                    getAlphaMap
+                });
             if (!candidateAlphaMap) continue;
 
             const candidate = evaluateRestorationCandidate({
@@ -365,11 +480,152 @@ function searchStandardSizeJitterCandidate({
                 },
                 baselineNearBlackRatio: calculateNearBlackRatio(originalImageData, candidatePosition),
                 adaptiveConfidence,
-                provenance: mergeCandidateProvenance(seed.provenance, { sizeJitter: true })
+                provenance: mergeCandidateProvenance(seed.provenance, { sizeJitter: true }),
+                includeImageData: false
             });
 
             if (!candidate?.accepted) continue;
             bestCandidate = pickBetterCandidate(bestCandidate, candidate, 0.002);
+        }
+    }
+
+    return bestCandidate;
+}
+
+function insertTopPreviewCandidate(topCandidates, candidate) {
+    topCandidates.push(candidate);
+    topCandidates.sort((a, b) => b.coarseScore - a.coarseScore);
+    if (topCandidates.length > PREVIEW_ANCHOR_TOP_K) {
+        topCandidates.length = PREVIEW_ANCHOR_TOP_K;
+    }
+}
+
+function searchBottomRightPreviewCandidate({
+    originalImageData,
+    config,
+    alpha48,
+    alpha96,
+    getAlphaMap,
+    resolveAlphaMap = null,
+    adaptiveConfidence = null
+}) {
+    if (!config || config.logoSize !== 48) return null;
+    if (originalImageData.width < 512 || originalImageData.width > 1536) return null;
+    if (originalImageData.height < 256 || originalImageData.height > 900) return null;
+
+    const minSize = Math.max(
+        PREVIEW_ANCHOR_MIN_SIZE,
+        Math.round(config.logoSize * PREVIEW_ANCHOR_MIN_SIZE_RATIO)
+    );
+    const maxSize = Math.max(
+        minSize,
+        Math.round(config.logoSize * PREVIEW_ANCHOR_MAX_SIZE_RATIO)
+    );
+    const minMarginRight = Math.max(8, config.marginRight - PREVIEW_ANCHOR_MARGIN_WINDOW);
+    const maxMarginRight = config.marginRight + PREVIEW_ANCHOR_MARGIN_EXTENSION;
+    const minMarginBottom = Math.max(8, config.marginBottom - PREVIEW_ANCHOR_MARGIN_WINDOW);
+    const maxMarginBottom = config.marginBottom + PREVIEW_ANCHOR_MARGIN_EXTENSION;
+    const topCandidates = [];
+
+    for (let size = minSize; size <= maxSize; size += PREVIEW_ANCHOR_SIZE_STEP) {
+        const alphaMap = typeof resolveAlphaMap === 'function'
+            ? resolveAlphaMap(size)
+            : resolveAlphaMapForSize(size, {
+                alpha48,
+                alpha96,
+                getAlphaMap
+            });
+        if (!alphaMap) continue;
+
+        for (let marginRight = minMarginRight; marginRight <= maxMarginRight; marginRight += PREVIEW_ANCHOR_MARGIN_STEP) {
+            const x = originalImageData.width - marginRight - size;
+            if (x < 0 || x + size > originalImageData.width) continue;
+
+            for (let marginBottom = minMarginBottom; marginBottom <= maxMarginBottom; marginBottom += PREVIEW_ANCHOR_MARGIN_STEP) {
+                const y = originalImageData.height - marginBottom - size;
+                if (y < 0 || y + size > originalImageData.height) continue;
+
+                const coarseSpatialScore = computeRegionSpatialCorrelation({
+                    imageData: originalImageData,
+                    alphaMap,
+                    region: { x, y, size }
+                });
+                const coarseGradientScore = computeRegionGradientCorrelation({
+                    imageData: originalImageData,
+                    alphaMap,
+                    region: { x, y, size }
+                });
+                const coarseScore =
+                    Math.max(0, coarseGradientScore) * 0.6 +
+                    Math.max(0, coarseSpatialScore) * 0.4;
+
+                if (coarseScore < PREVIEW_ANCHOR_MIN_SCORE) continue;
+
+                insertTopPreviewCandidate(topCandidates, {
+                    coarseScore,
+                    alphaMap,
+                    position: { x, y, width: size, height: size },
+                    config: {
+                        logoSize: size,
+                        marginRight,
+                        marginBottom
+                    }
+                });
+            }
+        }
+    }
+
+    let bestCandidate = null;
+    for (const coarseCandidate of topCandidates) {
+        for (const sizeDelta of PREVIEW_ANCHOR_LOCAL_DELTAS) {
+            const size = coarseCandidate.position.width + sizeDelta;
+            if (size < PREVIEW_ANCHOR_MIN_SIZE) continue;
+
+            const alphaMap = typeof resolveAlphaMap === 'function'
+                ? resolveAlphaMap(size)
+                : resolveAlphaMapForSize(size, {
+                    alpha48,
+                    alpha96,
+                    getAlphaMap
+                });
+            if (!alphaMap) continue;
+
+            for (const dx of PREVIEW_ANCHOR_LOCAL_DELTAS) {
+                for (const dy of PREVIEW_ANCHOR_LOCAL_DELTAS) {
+                    const position = {
+                        x: coarseCandidate.position.x + dx,
+                        y: coarseCandidate.position.y + dy,
+                        width: size,
+                        height: size
+                    };
+                    if (position.x < 0 || position.y < 0) continue;
+                    if (position.x + position.width > originalImageData.width) continue;
+                    if (position.y + position.height > originalImageData.height) continue;
+
+                    const config = {
+                        logoSize: size,
+                        marginRight: originalImageData.width - position.x - size,
+                        marginBottom: originalImageData.height - position.y - size
+                    };
+                    const candidate = evaluateRestorationCandidate({
+                        originalImageData,
+                        alphaMap,
+                        position,
+                        source: 'standard+preview-anchor',
+                        config,
+                        baselineNearBlackRatio: calculateNearBlackRatio(originalImageData, position),
+                        adaptiveConfidence,
+                        provenance: {
+                            previewAnchor: true,
+                            previewAnchorLocalRefine: sizeDelta !== 0 || dx !== 0 || dy !== 0
+                        },
+                        includeImageData: false
+                    });
+
+                    if (!candidate?.accepted) continue;
+                    bestCandidate = pickBetterCandidate(bestCandidate, candidate, 0.002);
+                }
+            }
         }
     }
 
@@ -384,8 +640,11 @@ export function selectInitialCandidate({
     alpha96,
     getAlphaMap,
     allowAdaptiveSearch,
-    alphaGainCandidates
+    alphaGainCandidates,
+    searchProfile = 'default'
 }) {
+    const preferPreviewFastPath = searchProfile === 'preview-fast';
+    const resolveAlphaMap = createAlphaMapResolver({ alpha48, alpha96, getAlphaMap });
     let alphaMap = config.logoSize === 96 ? alpha96 : alpha48;
     let standardCandidateSeeds = buildStandardCandidateSeeds({
         originalImageData,
@@ -394,6 +653,7 @@ export function selectInitialCandidate({
         alpha48,
         alpha96,
         getAlphaMap,
+        resolveAlphaMap,
         includeCatalogVariants: false
     });
     let standardTrials = standardCandidateSeeds
@@ -404,7 +664,8 @@ export function selectInitialCandidate({
             source: seed.source,
             config: seed.config,
             baselineNearBlackRatio: calculateNearBlackRatio(originalImageData, seed.position),
-            provenance: seed.provenance
+            provenance: seed.provenance,
+            includeImageData: false
         }))
         .filter(Boolean);
     let standardTrial = standardTrials.find((candidate) => candidate.source === 'standard') ?? standardTrials[0] ?? null;
@@ -427,6 +688,7 @@ export function selectInitialCandidate({
             alpha48,
             alpha96,
             getAlphaMap,
+            resolveAlphaMap,
             includeCatalogVariants: true
         });
         standardTrials = standardCandidateSeeds
@@ -437,7 +699,8 @@ export function selectInitialCandidate({
                 source: seed.source,
                 config: seed.config,
                 baselineNearBlackRatio: calculateNearBlackRatio(originalImageData, seed.position),
-                provenance: seed.provenance
+                provenance: seed.provenance,
+                includeImageData: false
             }))
             .filter(Boolean);
         standardTrial = standardTrials.find((candidate) => candidate.source === 'standard') ?? standardTrials[0] ?? null;
@@ -483,11 +746,7 @@ export function selectInitialCandidate({
             width: size,
             height: size
         };
-        const adaptiveAlphaMap = resolveAlphaMapForSize(size, {
-            alpha48,
-            alpha96,
-            getAlphaMap
-        });
+        const adaptiveAlphaMap = resolveAlphaMap(size);
         if (!adaptiveAlphaMap) {
             throw new Error(`Missing alpha map for adaptive size ${size}`);
         }
@@ -504,7 +763,8 @@ export function selectInitialCandidate({
             config: adaptiveConfig,
             baselineNearBlackRatio: calculateNearBlackRatio(originalImageData, adaptivePosition),
             adaptiveConfidence: adaptive.confidence,
-            provenance: { adaptive: true }
+            provenance: { adaptive: true },
+            includeImageData: false
         });
         return adaptiveTrial;
     };
@@ -547,13 +807,33 @@ export function selectInitialCandidate({
         }
     }
 
-    if (baseDecisionTier !== 'direct-match' && shouldEscalateSearch(baseCandidate)) {
+    if (!baseCandidate && preferPreviewFastPath) {
+        const previewAnchorCandidate = searchBottomRightPreviewCandidate({
+            originalImageData,
+            config,
+            alpha48,
+            alpha96,
+            getAlphaMap,
+            resolveAlphaMap,
+            adaptiveConfidence
+        });
+        if (previewAnchorCandidate) {
+            baseCandidate = {
+                ...previewAnchorCandidate,
+                source: `${previewAnchorCandidate.source}+validated`
+            };
+            baseDecisionTier = 'validated-match';
+        }
+    }
+
+    if (!preferPreviewFastPath && baseDecisionTier !== 'direct-match' && shouldEscalateSearch(baseCandidate)) {
         const sizeJitterCandidate = searchStandardSizeJitterCandidate({
             originalImageData,
             candidateSeeds: standardCandidateSeeds,
             alpha48,
             alpha96,
-            getAlphaMap
+            getAlphaMap,
+            resolveAlphaMap
         });
         if (sizeJitterCandidate) {
             const previousCandidate = baseCandidate;
@@ -571,6 +851,8 @@ export function selectInitialCandidate({
         if (!allowAdaptiveSearch || !alpha96) return false;
         if (!baseCandidate) return true;
         if (!shouldEscalateSearch(baseCandidate)) return false;
+
+        baseCandidate = ensureCandidateImageData(baseCandidate, originalImageData);
 
         return shouldAttemptAdaptiveFallback({
             processedImageData: baseCandidate.imageData,
@@ -603,7 +885,7 @@ export function selectInitialCandidate({
         }
     }
 
-    if (!baseCandidate && !hasReliableAdaptiveWatermarkSignal(adaptive)) {
+    if (!preferPreviewFastPath && !baseCandidate && !hasReliableAdaptiveWatermarkSignal(adaptive)) {
         const nearbyStandardCandidate = searchNearbyStandardCandidate({
             originalImageData,
             candidateSeeds: standardCandidateSeeds,
@@ -613,6 +895,25 @@ export function selectInitialCandidate({
             baseCandidate = {
                 ...nearbyStandardCandidate,
                 source: `${nearbyStandardCandidate.source}+validated`
+            };
+            baseDecisionTier = 'validated-match';
+        }
+    }
+
+    if (!preferPreviewFastPath && !baseCandidate) {
+        const previewAnchorCandidate = searchBottomRightPreviewCandidate({
+            originalImageData,
+            config,
+            alpha48,
+            alpha96,
+            getAlphaMap,
+            resolveAlphaMap,
+            adaptiveConfidence
+        });
+        if (previewAnchorCandidate) {
+            baseCandidate = {
+                ...previewAnchorCandidate,
+                source: `${previewAnchorCandidate.source}+validated`
             };
             baseDecisionTier = 'validated-match';
         }
@@ -650,13 +951,20 @@ export function selectInitialCandidate({
     let decisionTier = baseDecisionTier || inferDecisionTier(baseCandidate);
     let templateWarp = null;
     let selectedAlphaGain = baseCandidate.alphaGain ?? 1;
+    selectedTrial = ensureCandidateImageData(selectedTrial, originalImageData);
 
     const warpCandidate = findBestTemplateWarp({
         originalImageData,
         alphaMap,
         position,
         baselineSpatialScore: selectedTrial.originalSpatialScore,
-        baselineGradientScore: selectedTrial.originalGradientScore
+        baselineGradientScore: selectedTrial.originalGradientScore,
+        shiftCandidates: selectedTrial.provenance?.previewAnchor === true
+            ? PREVIEW_TEMPLATE_ALIGN_SHIFTS
+            : TEMPLATE_ALIGN_SHIFTS,
+        scaleCandidates: selectedTrial.provenance?.previewAnchor === true
+            ? PREVIEW_TEMPLATE_ALIGN_SCALES
+            : TEMPLATE_ALIGN_SCALES
     });
     if (warpCandidate) {
         const warpedTrial = evaluateRestorationCandidate({
@@ -667,13 +975,14 @@ export function selectInitialCandidate({
             config,
             baselineNearBlackRatio: calculateNearBlackRatio(originalImageData, position),
             adaptiveConfidence,
-            provenance: selectedTrial.provenance
+            provenance: selectedTrial.provenance,
+            includeImageData: false
         });
         const betterWarpTrial = pickBetterCandidate(selectedTrial, warpedTrial);
         if (betterWarpTrial !== selectedTrial) {
             alphaMap = warpedTrial.alphaMap;
             source = betterWarpTrial.source;
-            selectedTrial = betterWarpTrial;
+            selectedTrial = ensureCandidateImageData(betterWarpTrial, originalImageData);
             templateWarp = warpCandidate.shift;
             decisionTier = inferDecisionTier(betterWarpTrial, {
                 directMatch: decisionTier === 'direct-match'
@@ -681,8 +990,11 @@ export function selectInitialCandidate({
         }
     }
 
+    const shouldRunGainSearch = preferPreviewFastPath
+        ? isPreviewFastGainSearchRequired(selectedTrial)
+        : shouldEscalateSearch(selectedTrial);
     let bestGainTrial = selectedTrial;
-    if (shouldEscalateSearch(selectedTrial)) {
+    if (shouldRunGainSearch) {
         for (const candidateGain of alphaGainCandidates) {
             const gainTrial = evaluateRestorationCandidate({
                 originalImageData,
@@ -693,13 +1005,14 @@ export function selectInitialCandidate({
                 baselineNearBlackRatio: calculateNearBlackRatio(originalImageData, position),
                 adaptiveConfidence,
                 alphaGain: candidateGain,
-                provenance: selectedTrial.provenance
+                provenance: selectedTrial.provenance,
+                includeImageData: false
             });
             bestGainTrial = pickBetterCandidate(bestGainTrial, gainTrial);
         }
     }
     if (bestGainTrial !== selectedTrial) {
-        selectedTrial = bestGainTrial;
+        selectedTrial = ensureCandidateImageData(bestGainTrial, originalImageData);
         source = bestGainTrial.source;
         selectedAlphaGain = bestGainTrial.alphaGain;
         decisionTier = inferDecisionTier(bestGainTrial, {
@@ -708,7 +1021,7 @@ export function selectInitialCandidate({
     }
 
     return {
-        selectedTrial,
+        selectedTrial: ensureCandidateImageData(selectedTrial, originalImageData),
         source,
         alphaMap,
         position,

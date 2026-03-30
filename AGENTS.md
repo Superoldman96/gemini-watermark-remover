@@ -56,6 +56,79 @@ Minimum validation flow:
    - `gwr:userscript-process-request`
    - Expect `gwr:userscript-process-response`
 
+### Real-Page Pixel Verification
+
+- Single image compare: `pnpm probe:real-page:compare`
+- All ready images on the current Gemini page: `pnpm probe:real-page:compare --all`
+- Latest batch summary:
+  - `.artifacts/real-page-pixel-compare/latest-summary.json`
+
+Use this when page-level screenshots are not enough and you need original blob pixel metrics for `before/after`.
+
+Current confirmed real-page batch baseline on the fixed profile:
+
+- 5 preview images reached `state=ready`
+- Easier samples currently land around:
+  - `afterSpatial ~= 0.017 ~ 0.040`
+  - `afterGradient ~= 0.075 ~ 0.098`
+- Stronger watermark samples currently land around:
+  - `afterSpatial ~= 0.133 ~ 0.155`
+  - `afterGradient ~= 0.295 ~ 0.304`
+
+These stronger-sample numbers are intentional tradeoffs after edge cleanup:
+
+- They are much better than the older `afterGradient ~= 0.53` level.
+- They keep residuals inside the current safety envelope instead of risking content damage.
+
+### Confirmed Performance Pitfalls
+
+When the user reports "this version became much slower", check these first before touching the core algorithm:
+
+1. Page runtime / page bridge did not actually install into the real Gemini page.
+   - Symptom:
+     - Real page silently falls back to the userscript sandbox / slow main-thread path.
+     - Earlier bad runs showed `removeWatermarkMs` on the order of `11s ~ 13s` for a single preview image.
+   - Verify:
+     - Reinstall the latest userscript from `http://127.0.0.1:4173/userscript/gemini-watermark-remover.user.js`
+     - Refresh the real page
+     - Confirm console reaches `Initializing...` and `Ready`
+     - Confirm preview images continue to `page image process success`
+
+2. Preview queue blocked by a `blob:` image that is not renderable yet.
+   - Symptom:
+     - One image gets stuck at `state=processing`
+     - The element often has `complete=false`, `naturalWidth=0`, `naturalHeight=0`
+     - Later images stop progressing because the serial queue is effectively wedged
+   - Current fix:
+     - `src/shared/pageImageReplacement.js` now waits for renderability and retries instead of processing immediately
+   - If this regresses, inspect the waiting / retry path before changing watermark math
+
+3. `preview-fast` accidentally doing expensive work that is not adopted.
+   - Symptom:
+     - Main thread is busy, but output source does not include a successful `+subpixel`
+     - Earlier bad runs showed `subpixelRefinementMs ~= 80ms ~ 115ms` on strong preview samples with no accepted subpixel shift
+   - Current fix:
+     - `preview-fast` no longer runs the expensive subpixel refinement path
+     - It relies on cheaper preview edge cleanup instead
+   - Rule:
+     - Do not re-enable preview-fast subpixel search unless you have a real fixture that proves the accepted result is both safer and materially better
+
+### Confirmed Quality / Performance Tradeoff
+
+For strong real-page preview samples, the current strategy is:
+
+- Skip expensive preview-fast subpixel refinement
+- Use stronger preview edge cleanup only when:
+  - the image is a preview-anchor style match
+  - spatial residual is already low enough to be safe
+  - gradient residual is still strong enough to justify cleanup
+
+Why this exists:
+
+- It lowers strong-sample real-page residual gradient from roughly `0.53` to roughly `0.30`
+- It keeps preview-fast latency low by avoiding no-op subpixel sweeps
+- It accepts some spatial drift to stay within a safe residual envelope rather than overfitting and risking content damage
+
 ### Worker Debug Flow
 
 For reproduction only. This is not the default production path.

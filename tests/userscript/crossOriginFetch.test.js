@@ -49,3 +49,25 @@ test('createUserscriptBlobFetcher should reject non-2xx responses', async () => 
     /Failed to fetch image: 403/
   );
 });
+
+test('createUserscriptBlobFetcher should fail fast for googleusercontent urls when GM_xmlhttpRequest is unavailable', async () => {
+  let fallbackCalls = 0;
+  const fetchBlob = createUserscriptBlobFetcher({
+    gmRequest: null,
+    fallbackFetch: async () => {
+      fallbackCalls += 1;
+      return new Response(new Blob(['fallback'], { type: 'image/png' }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'image/png'
+        }
+      });
+    }
+  });
+
+  await assert.rejects(
+    () => fetchBlob('https://lh3.googleusercontent.com/gg/example=s1024-rj'),
+    /GM_xmlhttpRequest/
+  );
+  assert.equal(fallbackCalls, 0);
+});

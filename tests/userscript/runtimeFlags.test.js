@@ -1,17 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { shouldUseInlineWorker } from '../../src/userscript/runtimeFlags.js';
+import { isTimingDebugEnabled, shouldUseInlineWorker } from '../../src/userscript/runtimeFlags.js';
 
 function createStorage(initialValue = null) {
   let value = initialValue;
   return {
     getItem(key) {
-      if (key !== '__gwr_force_inline_worker__') return null;
+      if (key !== '__gwr_force_inline_worker__' && key !== '__gwr_debug_timings__') return null;
       return value;
     },
     setItem(key, nextValue) {
-      if (key !== '__gwr_force_inline_worker__') return;
+      if (key !== '__gwr_force_inline_worker__' && key !== '__gwr_debug_timings__') return;
       value = String(nextValue);
     }
   };
@@ -81,4 +81,40 @@ test('shouldUseInlineWorker should ignore force flags when worker primitives are
   };
 
   assert.equal(shouldUseInlineWorker('self.onmessage = () => {};', env), false);
+});
+
+test('isTimingDebugEnabled should stay disabled by default', () => {
+  const env = {
+    localStorage: createStorage(null)
+  };
+
+  assert.equal(isTimingDebugEnabled(env), false);
+});
+
+test('isTimingDebugEnabled should allow enabling through a runtime global flag', () => {
+  const env = {
+    __GWR_DEBUG_TIMINGS__: true,
+    localStorage: createStorage(null)
+  };
+
+  assert.equal(isTimingDebugEnabled(env), true);
+});
+
+test('isTimingDebugEnabled should allow enabling through localStorage', () => {
+  const env = {
+    localStorage: createStorage('1')
+  };
+
+  assert.equal(isTimingDebugEnabled(env), true);
+});
+
+test('isTimingDebugEnabled should read debug flag from unsafeWindow localStorage', () => {
+  const env = {
+    unsafeWindow: {
+      localStorage: createStorage('true')
+    },
+    localStorage: createStorage(null)
+  };
+
+  assert.equal(isTimingDebugEnabled(env), true);
 });

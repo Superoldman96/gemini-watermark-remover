@@ -5,6 +5,10 @@ export function shouldFetchBlobDirectly(sourceUrl) {
     && (sourceUrl.startsWith('blob:') || sourceUrl.startsWith('data:'));
 }
 
+function isRuntimeBlobUrl(sourceUrl) {
+  return typeof sourceUrl === 'string' && sourceUrl.startsWith('blob:');
+}
+
 function shouldPreferRenderedCapture(sourceUrl) {
   return isGeminiPreviewAssetUrl(sourceUrl);
 }
@@ -27,11 +31,19 @@ export async function acquireOriginalBlob({
   captureRenderedImageBlob,
   validateBlob,
   preferRenderedCaptureForPreview = true,
+  preferRenderedCaptureForBlobUrl = false,
   allowRenderedCaptureFallbackOnValidationFailure = true
 }) {
   const normalizedSourceUrl = typeof sourceUrl === 'string' ? sourceUrl.trim() : '';
 
   if (preferRenderedCaptureForPreview && shouldPreferRenderedCapture(normalizedSourceUrl)) {
+    return captureRenderedBlob({
+      image,
+      captureRenderedImageBlob
+    });
+  }
+
+  if (preferRenderedCaptureForBlobUrl && isRuntimeBlobUrl(normalizedSourceUrl)) {
     return captureRenderedBlob({
       image,
       captureRenderedImageBlob

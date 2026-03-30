@@ -2,6 +2,10 @@ function isGoogleusercontentHost(hostname) {
   return hostname === 'googleusercontent.com' || hostname.endsWith('.googleusercontent.com');
 }
 
+function hasNativeDownloadTokenAtTail(pathname) {
+  return /=(?:d|d-I)$/i.test(String(pathname || ''));
+}
+
 // Keep Gemini asset path classification centralized here.
 // We previously expanded generic asset handling from `gg/` to `gg-*`, but some
 // older preview-only branches still hard-coded `^/gg/`, which broke tiered
@@ -80,6 +84,26 @@ export function isGeminiPreviewAssetUrl(url) {
   return classifyGeminiAssetUrl(url)?.isPreview === true;
 }
 
+export function isGeminiOriginalAssetUrl(url) {
+  if (typeof url !== 'string' || url.length === 0) return false;
+
+  try {
+    const parsed = new URL(url);
+    if (!isGoogleusercontentHost(parsed.hostname)) {
+      return false;
+    }
+
+    const classification = classifyGeminiAssetPath(parsed.pathname);
+    if (!classification) {
+      return false;
+    }
+
+    return classification.isPreview === false || hasNativeDownloadTokenAtTail(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
 export function normalizeGoogleusercontentImageUrl(url) {
   if (!isGeminiGeneratedAssetUrl(url)) return url;
 
@@ -96,9 +120,8 @@ export function normalizeGoogleusercontentImageUrl(url) {
       return parsed.toString();
     }
 
-    const nativeDownloadSuffixAtTail = /=(?:d|d-I)$/i;
-    if (nativeDownloadSuffixAtTail.test(path)) {
-      parsed.pathname = path.replace(nativeDownloadSuffixAtTail, (match) => `=s0-${match.slice(1)}`);
+    if (hasNativeDownloadTokenAtTail(path)) {
+      parsed.pathname = path.replace(/=(?:d|d-I)$/i, (match) => `=s0-${match.slice(1)}`);
       return parsed.toString();
     }
 

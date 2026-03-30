@@ -1,56 +1,50 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { toWorkerScriptUrl } from '../../src/userscript/trustedTypes.js';
+import {
+  toTrustedScript,
+  toTrustedScriptUrl,
+  toWorkerScriptUrl
+} from '../../src/userscript/trustedTypes.js';
 
-test('toWorkerScriptUrl should return original url when trustedTypes is unavailable', () => {
-  const url = 'blob:https://example.com/123';
-  const out = toWorkerScriptUrl(url, {});
-  assert.equal(out, url);
+test('trustedTypes helpers should return raw values when trustedTypes API is unavailable', () => {
+  const env = {};
+  assert.equal(toTrustedScript('window.__x = 1;', env), 'window.__x = 1;');
+  assert.equal(toTrustedScriptUrl('blob:test', env), 'blob:test');
+  assert.equal(toWorkerScriptUrl('blob:test', env), 'blob:test');
 });
 
-test('toWorkerScriptUrl should reuse existing policy when available', () => {
-  const policy = { createScriptURL: (value) => `trusted:${value}` };
+test('trustedTypes helpers should use a created policy when the API is available', () => {
+  const calls = [];
+  const policy = {
+    createScript(value) {
+      calls.push(['script', value]);
+      return { __trustedScript: value };
+    },
+    createScriptURL(value) {
+      calls.push(['scriptURL', value]);
+      return { __trustedScriptURL: value };
+    }
+  };
   const env = {
     trustedTypes: {
-      getPolicy: (name) => (name === 'gemini-watermark-remover' ? policy : null),
-      createPolicy: () => {
-        throw new Error('createPolicy should not be called');
+      getPolicy() {
+        return null;
+      },
+      createPolicy(name, rules) {
+        assert.equal(typeof rules.createScript, 'function');
+        assert.equal(typeof rules.createScriptURL, 'function');
+        return policy;
       }
     }
   };
 
-  const out = toWorkerScriptUrl('blob:https://example.com/123', env);
-  assert.equal(out, 'trusted:blob:https://example.com/123');
-});
-
-test('toWorkerScriptUrl should create policy when missing', () => {
-  let created = false;
-  const env = {
-    trustedTypes: {
-      getPolicy: () => null,
-      createPolicy: (name, rules) => {
-        created = name === 'gemini-watermark-remover' && typeof rules?.createScriptURL === 'function';
-        return { createScriptURL: (value) => `trusted:${rules.createScriptURL(value)}` };
-      }
-    }
-  };
-
-  const out = toWorkerScriptUrl('blob:https://example.com/123', env);
-  assert.equal(created, true);
-  assert.equal(out, 'trusted:blob:https://example.com/123');
-});
-
-test('toWorkerScriptUrl should return null when policy creation is blocked', () => {
-  const env = {
-    trustedTypes: {
-      getPolicy: () => null,
-      createPolicy: () => {
-        throw new TypeError('Refused to create a TrustedTypePolicy');
-      }
-    }
-  };
-
-  const out = toWorkerScriptUrl('blob:https://example.com/123', env);
-  assert.equal(out, null);
+  assert.deepEqual(toTrustedScript('window.__x = 1;', env), { __trustedScript: 'window.__x = 1;' });
+  assert.deepEqual(toTrustedScriptUrl('blob:test', env), { __trustedScriptURL: 'blob:test' });
+  assert.deepEqual(toWorkerScriptUrl('blob:worker', env), { __trustedScriptURL: 'blob:worker' });
+  assert.deepEqual(calls, [
+    ['script', 'window.__x = 1;'],
+    ['scriptURL', 'blob:test'],
+    ['scriptURL', 'blob:worker']
+  ]);
 });

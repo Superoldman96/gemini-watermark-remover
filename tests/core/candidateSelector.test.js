@@ -6,7 +6,7 @@ import {
     evaluateRestorationCandidate,
     selectInitialCandidate
 } from '../../src/core/candidateSelector.js';
-import { interpolateAlphaMap } from '../../src/core/adaptiveDetector.js';
+import { interpolateAlphaMap, warpAlphaMap } from '../../src/core/adaptiveDetector.js';
 import {
     applySyntheticWatermark,
     createPatternImageData,
@@ -115,6 +115,57 @@ test('evaluateRestorationCandidate should add texture penalty when restoration b
     assert.equal(candidate.accepted, true);
     assert.ok(candidate.validationCost > baseValidationCost, 'expected local texture penalty to increase validation cost');
     assert.ok(candidate.texturePenalty > 0, `texturePenalty=${candidate.texturePenalty}`);
+});
+
+test('evaluateRestorationCandidate should support scoring without materializing a full candidate image', () => {
+    const alpha96 = createSyntheticAlphaMap(96);
+    const alpha48 = interpolateAlphaMap(alpha96, 96, 48);
+    const imageData = createPatternImageData(320, 320);
+    const position = {
+        x: 240,
+        y: 240,
+        width: 48,
+        height: 48
+    };
+
+    applySyntheticWatermark(imageData, alpha48, position, 1);
+
+    const fullCandidate = evaluateRestorationCandidate({
+        originalImageData: imageData,
+        alphaMap: alpha48,
+        position,
+        source: 'standard',
+        config: {
+            logoSize: 48,
+            marginRight: 32,
+            marginBottom: 32
+        },
+        baselineNearBlackRatio: 0,
+        alphaGain: 1,
+        includeImageData: true
+    });
+
+    const scoreOnlyCandidate = evaluateRestorationCandidate({
+        originalImageData: imageData,
+        alphaMap: alpha48,
+        position,
+        source: 'standard',
+        config: {
+            logoSize: 48,
+            marginRight: 32,
+            marginBottom: 32
+        },
+        baselineNearBlackRatio: 0,
+        alphaGain: 1,
+        includeImageData: false
+    });
+
+    assert.ok(fullCandidate.imageData, 'expected full candidate image data to exist');
+    assert.equal(scoreOnlyCandidate.imageData, null);
+    assert.equal(scoreOnlyCandidate.accepted, fullCandidate.accepted);
+    assert.equal(scoreOnlyCandidate.processedSpatialScore, fullCandidate.processedSpatialScore);
+    assert.equal(scoreOnlyCandidate.processedGradientScore, fullCandidate.processedGradientScore);
+    assert.equal(scoreOnlyCandidate.validationCost, fullCandidate.validationCost);
 });
 
 test('assessReferenceTextureAlignment should mark a candidate unsafe when it is both darker and flatter than the local reference', () => {
@@ -236,4 +287,105 @@ test('selectInitialCandidate should skip expensive size-jitter search when the s
     assert.ok(result.selectedTrial, 'expected standard candidate to be selected');
     assert.equal(interpolatedAlphaRequests, 0);
     assert.ok(result.source.startsWith('standard'), `source=${result.source}`);
+});
+
+test('selectInitialCandidate should reuse interpolated alpha maps across preview-fast anchor refinement', () => {
+    const alpha96 = createSyntheticAlphaMap(96);
+    const alpha48 = interpolateAlphaMap(alpha96, 96, 48);
+    const imageData = createPatternImageData(1024, 559);
+    const config = {
+        logoSize: 48,
+        marginRight: 24,
+        marginBottom: 24
+    };
+    const position = {
+        x: imageData.width - config.marginRight - config.logoSize,
+        y: imageData.height - config.marginBottom - config.logoSize,
+        width: config.logoSize,
+        height: config.logoSize
+    };
+    const truePosition = {
+        x: 1024 - 24 - 34,
+        y: 559 - 24 - 34,
+        width: 34,
+        height: 34
+    };
+    const alpha34 = warpAlphaMap(interpolateAlphaMap(alpha96, 96, 34), 34, {
+        dx: -1,
+        dy: 1,
+        scale: 0.985
+    });
+    applySyntheticWatermark(imageData, alpha34, truePosition, 1.1);
+
+    const requestedSizes = [];
+    const result = selectInitialCandidate({
+        originalImageData: imageData,
+        config,
+        position,
+        alpha48,
+        alpha96,
+        getAlphaMap: (size) => {
+            requestedSizes.push(size);
+            return interpolateAlphaMap(alpha96, 96, size);
+        },
+        allowAdaptiveSearch: false,
+        alphaGainCandidates: [1.04, 1.12, 1.22, 1.34],
+        searchProfile: 'preview-fast'
+    });
+
+    assert.ok(result.selectedTrial, 'expected preview-fast candidate to be selected');
+    assert.ok(result.source.startsWith('standard+preview-anchor'), `source=${result.source}`);
+    assert.equal(
+        requestedSizes.length,
+        new Set(requestedSizes).size,
+        `expected preview-fast alpha map requests to be cached by size, got ${JSON.stringify(requestedSizes)}`
+    );
+});
+
+test('selectInitialCandidate should skip preview-fast gain search when preview anchor is already clean enough', () => {
+    const alpha96 = createSyntheticAlphaMap(96);
+    const alpha48 = interpolateAlphaMap(alpha96, 96, 48);
+    const imageData = createPatternImageData(1024, 559);
+    const config = {
+        logoSize: 48,
+        marginRight: 24,
+        marginBottom: 24
+    };
+    const position = {
+        x: imageData.width - config.marginRight - config.logoSize,
+        y: imageData.height - config.marginBottom - config.logoSize,
+        width: config.logoSize,
+        height: config.logoSize
+    };
+    const truePosition = {
+        x: 1024 - 24 - 34,
+        y: 559 - 24 - 34,
+        width: 34,
+        height: 34
+    };
+    const alpha34 = warpAlphaMap(interpolateAlphaMap(alpha96, 96, 34), 34, {
+        dx: -1,
+        dy: 1,
+        scale: 0.985
+    });
+    applySyntheticWatermark(imageData, alpha34, truePosition, 1.1);
+
+    const result = selectInitialCandidate({
+        originalImageData: imageData,
+        config,
+        position,
+        alpha48,
+        alpha96,
+        getAlphaMap: (size) => interpolateAlphaMap(alpha96, 96, size),
+        allowAdaptiveSearch: false,
+        alphaGainCandidates: [1.04, 1.12, 1.22, 1.34],
+        searchProfile: 'preview-fast'
+    });
+
+    assert.ok(result.selectedTrial, 'expected preview-fast candidate to be selected');
+    assert.equal(result.alphaGain, 1, `expected no extra gain search, alphaGain=${result.alphaGain}`);
+    assert.ok(
+        !String(result.source).includes('+gain'),
+        `expected preview-fast to skip gain sweep for already-clean preview anchor, source=${result.source}`
+    );
 });

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
     classifyGeminiAssetUrl,
     isGeminiPreviewAssetUrl,
+    isGeminiOriginalAssetUrl,
     isGeminiGeneratedAssetUrl,
     normalizeGoogleusercontentImageUrl
 } from '../../src/userscript/urlUtils.js';
@@ -106,6 +107,15 @@ test('isGeminiPreviewAssetUrl should match gg family preview urls across user ti
     assert.equal(isGeminiPreviewAssetUrl('https://lh3.googleusercontent.com/gg-premium-dl/abc=s1024-rj'), false);
     assert.equal(isGeminiPreviewAssetUrl('https://lh3.googleusercontent.com/rd-gg/abc=s1024'), false);
     assert.equal(isGeminiPreviewAssetUrl('https://example.com/gg/abc=s1024-rj'), false);
+});
+
+test('isGeminiOriginalAssetUrl should only match non-preview Gemini asset urls', () => {
+    assert.equal(isGeminiOriginalAssetUrl('https://lh3.googleusercontent.com/gg/abc=s1024-rj?alr=yes'), false);
+    assert.equal(isGeminiOriginalAssetUrl('https://lh3.googleusercontent.com/gg-premium/abc=s1024-rj'), false);
+    assert.equal(isGeminiOriginalAssetUrl('https://lh3.googleusercontent.com/rd-gg/abc=s1024'), true);
+    assert.equal(isGeminiOriginalAssetUrl('https://lh3.googleusercontent.com/gg-dl/abc=s1024-rj'), true);
+    assert.equal(isGeminiOriginalAssetUrl('https://lh3.googleusercontent.com/gg/example-token=d-I?alr=yes'), true);
+    assert.equal(isGeminiOriginalAssetUrl('https://example.com/rd-gg/abc=s1024'), false);
 });
 
 test('classifyGeminiAssetUrl should distinguish rd, preview, and download path families', () => {

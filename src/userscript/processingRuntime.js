@@ -1,7 +1,7 @@
 import { WatermarkEngine } from '../core/watermarkEngine.js';
 import { canvasToBlob } from '../core/canvasBlob.js';
 import { toWorkerScriptUrl } from './trustedTypes.js';
-import { shouldUseInlineWorker } from './runtimeFlags.js';
+import { isTimingDebugEnabled, shouldUseInlineWorker } from './runtimeFlags.js';
 
 const DEFAULT_INLINE_WORKER_TIMEOUT_MS = 120000;
 const DEFAULT_WORKER_PING_TIMEOUT_MS = 3000;
@@ -20,6 +20,13 @@ function toError(errorLike, fallback = 'Inline worker error') {
     return new Error(errorLike.message);
   }
   return new Error(fallback);
+}
+
+function nowMs() {
+  if (typeof globalThis.performance?.now === 'function') {
+    return globalThis.performance.now();
+  }
+  return Date.now();
 }
 
 class InlineWorkerClient {
@@ -129,6 +136,7 @@ export function createUserscriptProcessingRuntime({
 } = {}) {
   let enginePromise = null;
   let workerClient = null;
+  const timingDebugEnabled = isTimingDebugEnabled(env);
 
   function normalizeProcessingOptions(options = {}) {
     return {
@@ -154,14 +162,62 @@ export function createUserscriptProcessingRuntime({
     workerClient = null;
   }
 
+  function emitTiming(stage, payload = {}) {
+    if (!timingDebugEnabled) return;
+    logger?.info?.(`[Gemini Watermark Remover] timing ${stage}`, payload);
+  }
+
   async function processBlobOnMainThread(blob, options = {}) {
+    const startedAt = nowMs();
+    const engineWaitStartedAt = nowMs();
     const engine = await getEngine();
+    const engineWaitMs = nowMs() - engineWaitStartedAt;
     const blobUrl = URL.createObjectURL(blob);
     try {
+      const decodeStartedAt = nowMs();
       const img = await loadImage(blobUrl);
-      const canvas = await engine.removeWatermarkFromImage(img, options);
+      const decodeMs = nowMs() - decodeStartedAt;
+      const removeStartedAt = nowMs();
+      const canvas = await engine.removeWatermarkFromImage(img, {
+        ...options,
+        debugTimings: timingDebugEnabled
+      });
+      const removeWatermarkMs = nowMs() - removeStartedAt;
+      const encodeStartedAt = nowMs();
+      const processedBlob = await canvasToBlob(canvas);
+      const encodeMs = nowMs() - encodeStartedAt;
+      const totalMs = nowMs() - startedAt;
+      const engineStageTimings = canvas?.__watermarkTiming ?? null;
+      const processorTimings = engineStageTimings?.processor ?? null;
+      emitTiming('process-blob-main-thread', {
+        sourceBlobType: blob?.type || '',
+        sourceBlobSize: blob?.size || 0,
+        imageWidth: img?.width || 0,
+        imageHeight: img?.height || 0,
+        engineWaitMs,
+        decodeMs,
+        removeWatermarkMs,
+        encodeMs,
+        totalMs,
+        adaptiveMode: options?.adaptiveMode || '',
+        maxPasses: options?.maxPasses ?? null,
+        processingProfile: options?.processingProfile || '',
+        engineStageTimings,
+        engineDrawMs: engineStageTimings?.drawMs ?? null,
+        engineGetImageDataMs: engineStageTimings?.getImageDataMs ?? null,
+        engineProcessWatermarkImageDataMs: engineStageTimings?.processWatermarkImageDataMs ?? null,
+        enginePutImageDataMs: engineStageTimings?.putImageDataMs ?? null,
+        processorInitialSelectionMs: processorTimings?.initialSelectionMs ?? null,
+        processorFirstPassMetricsMs: processorTimings?.firstPassMetricsMs ?? null,
+        processorExtraPassMs: processorTimings?.extraPassMs ?? null,
+        processorFinalMetricsMs: processorTimings?.finalMetricsMs ?? null,
+        processorRecalibrationMs: processorTimings?.recalibrationMs ?? null,
+        processorSubpixelRefinementMs: processorTimings?.subpixelRefinementMs ?? null,
+        processorPreviewEdgeCleanupMs: processorTimings?.previewEdgeCleanupMs ?? null,
+        processorTotalMs: processorTimings?.totalMs ?? null
+      });
       return {
-        processedBlob: await canvasToBlob(canvas),
+        processedBlob,
         processedMeta: canvas.__watermarkMeta || null
       };
     } finally {
