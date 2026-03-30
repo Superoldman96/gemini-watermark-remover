@@ -30,15 +30,10 @@ const PAGE_FETCH_REQUEST = 'gwr:page-fetch-request';
 const PAGE_FETCH_RESPONSE = 'gwr:page-fetch-response';
 const PROCESSING_OVERLAY_FADE_MS = 180;
 const PREVIEW_IMAGE_RENDER_RETRY_MS = 1500;
+const RECENT_SOURCE_HINT_TTL_MS = 5000;
 const MIN_VISIBLE_CAPTURE_EDGE = 32;
 const MIN_VISIBLE_CAPTURE_AREA = MIN_VISIBLE_CAPTURE_EDGE * MIN_VISIBLE_CAPTURE_EDGE;
 const CONTAINER_CAPTURE_AREA_RATIO = 4;
-const PREVIEW_PAGE_IMAGE_PROCESSING_OPTIONS = Object.freeze({
-  adaptiveMode: 'never',
-  maxPasses: 1,
-  processingProfile: 'preview-fast'
-});
-
 const processingOverlayState = new WeakMap();
 const previewOverlayState = new WeakMap();
 const originalAssetUrlRegistry = new Map();
@@ -51,6 +46,10 @@ function appendLog(onLog, type, payload = {}) {
 
 function isBlobPageImageSource(sourceUrl = '') {
   return typeof sourceUrl === 'string' && sourceUrl.startsWith('blob:');
+}
+
+function isDataPageImageSource(sourceUrl = '') {
+  return typeof sourceUrl === 'string' && sourceUrl.startsWith('data:');
 }
 
 function hasExplicitBoundSourceUrl(imageElement, sourceUrl = '') {
@@ -71,6 +70,120 @@ function shouldTreatPageImageSourceAsPreview(imageElement, sourceUrl = '') {
   }
 
   return !hasExplicitBoundSourceUrl(imageElement, sourceUrl);
+}
+
+function getComparableImageSize(imageElement) {
+  const width = Number(imageElement?.naturalWidth) || Number(imageElement?.clientWidth) || Number(imageElement?.width) || 0;
+  const height = Number(imageElement?.naturalHeight) || Number(imageElement?.clientHeight) || Number(imageElement?.height) || 0;
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+  return { width, height };
+}
+
+function getAspectRatioDelta(left, right) {
+  if (!left || !right) return 0;
+  return Math.abs((left.width / left.height) - (right.width / right.height));
+}
+
+function hasAnyAssetIds(assetIds = null) {
+  return Boolean(assetIds?.responseId || assetIds?.draftId || assetIds?.conversationId);
+}
+
+export function buildRecentImageSourceHint(imageElement, {
+  now = Date.now(),
+  resolveSourceUrl = resolveCandidateImageUrl,
+  resolveAssetIds = extractGeminiImageAssetIds
+} = {}) {
+  const sourceUrl = typeof resolveSourceUrl === 'function'
+    ? String(resolveSourceUrl(imageElement) || '').trim()
+    : '';
+  if (!sourceUrl || isBlobPageImageSource(sourceUrl) || isDataPageImageSource(sourceUrl)) {
+    return null;
+  }
+
+  return {
+    sourceUrl,
+    createdAt: Number(now) || 0,
+    size: getComparableImageSize(imageElement),
+    assetIds: typeof resolveAssetIds === 'function'
+      ? resolveAssetIds(imageElement)
+      : null
+  };
+}
+
+function isRecentImageSourceHintFresh(hint, now = Date.now()) {
+  if (!hint || typeof hint !== 'object') return false;
+  const createdAt = Number(hint.createdAt) || 0;
+  const currentNow = Number(now) || 0;
+  return createdAt > 0 && currentNow >= createdAt && (currentNow - createdAt) <= RECENT_SOURCE_HINT_TTL_MS;
+}
+
+export function applyRecentImageSourceHintToImage(imageElement, hint, {
+  now = Date.now()
+} = {}) {
+  if (!isRecentImageSourceHintFresh(hint, now) || !imageElement || typeof imageElement !== 'object') {
+    return false;
+  }
+
+  const dataset = imageElement.dataset || (imageElement.dataset = {});
+  if (typeof dataset.gwrSourceUrl === 'string' && dataset.gwrSourceUrl.trim()) {
+    return false;
+  }
+
+  const currentSourceUrl = resolveCandidateImageUrl(imageElement);
+  if (!isBlobPageImageSource(currentSourceUrl) && !isDataPageImageSource(currentSourceUrl)) {
+    return false;
+  }
+
+  const imageAssetIds = extractGeminiImageAssetIds(imageElement);
+  if (hasAnyAssetIds(imageAssetIds)) {
+    if (!hasAnyAssetIds(hint.assetIds) || !assetIdsMatch(imageAssetIds, hint.assetIds)) {
+      return false;
+    }
+  }
+
+  const hintSize = hint.size;
+  const imageSize = getComparableImageSize(imageElement);
+  if (hintSize && imageSize && getAspectRatioDelta(hintSize, imageSize) > 0.02) {
+    return false;
+  }
+
+  dataset.gwrSourceUrl = hint.sourceUrl;
+  if (!dataset[PAGE_IMAGE_RESPONSE_ID_KEY] && hint.assetIds?.responseId) {
+    dataset[PAGE_IMAGE_RESPONSE_ID_KEY] = hint.assetIds.responseId;
+  }
+  if (!dataset[PAGE_IMAGE_DRAFT_ID_KEY] && hint.assetIds?.draftId) {
+    dataset[PAGE_IMAGE_DRAFT_ID_KEY] = hint.assetIds.draftId;
+  }
+  if (!dataset[PAGE_IMAGE_CONVERSATION_ID_KEY] && hint.assetIds?.conversationId) {
+    dataset[PAGE_IMAGE_CONVERSATION_ID_KEY] = hint.assetIds.conversationId;
+  }
+  return true;
+}
+
+function resolveHintSourceImageFromEventTarget(target) {
+  if (!target || typeof target !== 'object') {
+    return null;
+  }
+
+  const normalizedTagName = typeof target.tagName === 'string' ? target.tagName.toUpperCase() : '';
+  if (normalizedTagName === 'IMG' && isProcessableGeminiImageElement(target)) {
+    return target;
+  }
+
+  const queryRoot = typeof target.closest === 'function'
+    ? (
+      target.closest(getGeminiImageContainerSelector())
+      || target.closest('single-image')
+      || target.closest('[data-test-draft-id]')
+    )
+    : null;
+  if (!queryRoot || typeof queryRoot.querySelector !== 'function') {
+    return null;
+  }
+
+  return queryRoot.querySelector('img');
 }
 
 function emitPageImageProcessEvent({
@@ -711,10 +824,7 @@ export async function processPreviewPageImageSource({
         fetchPreviewBlob,
         captureRenderedImageBlob
       }),
-      processCandidate: createPreviewCandidateProcessor(
-        processWatermarkBlobImpl,
-        PREVIEW_PAGE_IMAGE_PROCESSING_OPTIONS
-      )
+      processCandidate: createPreviewCandidateProcessor(processWatermarkBlobImpl)
     });
 
     return {
@@ -1586,6 +1696,7 @@ export function buildPageImageSourceRequest({
 export function createPageImageReplacementController({
   logger = console,
   onLog = null,
+  targetDocument = globalThis.document,
   fetchPreviewBlob = fetchBlobViaPageBridge,
   processPageImageSourceImpl = processPageImageSource,
   processWatermarkBlobImpl = processWatermarkBlob,
@@ -1601,6 +1712,7 @@ export function createPageImageReplacementController({
   let observer = null;
   let drainScheduled = false;
   let drainActive = false;
+  let recentImageSourceHint = null;
 
   function cleanupRenderableWait(imageElement) {
     const state = waitingForRenderable.get(imageElement);
@@ -1643,6 +1755,7 @@ export function createPageImageReplacementController({
   }
 
   async function processImage(imageElement) {
+    applyRecentImageSourceHintToImage(imageElement, recentImageSourceHint);
     const currentSourceUrl = String(resolveCandidateImageUrl(imageElement) || '').trim();
     if (
       currentSourceUrl
@@ -1741,8 +1854,17 @@ export function createPageImageReplacementController({
   const batchProcessor = createRootBatchProcessor({ processRoot });
   const scheduleProcess = batchProcessor.schedule;
 
+  function handlePointerIntent(event) {
+    const hintedImage = resolveHintSourceImageFromEventTarget(event?.target);
+    const nextHint = buildRecentImageSourceHint(hintedImage);
+    if (!nextHint) {
+      return;
+    }
+    recentImageSourceHint = nextHint;
+  }
+
   function observe() {
-    const root = document.body || document.documentElement;
+    const root = targetDocument?.body || targetDocument?.documentElement;
     if (!root || observer) return;
     observer = new MutationObserver((mutations) => {
       handlePageImageMutations(mutations, {
@@ -1759,11 +1881,13 @@ export function createPageImageReplacementController({
   }
 
   function install() {
-    processRoot(document);
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', () => {
+    processRoot(targetDocument);
+    targetDocument?.addEventListener?.('pointerdown', handlePointerIntent, true);
+    targetDocument?.addEventListener?.('click', handlePointerIntent, true);
+    if (targetDocument?.readyState === 'loading') {
+      targetDocument.addEventListener('DOMContentLoaded', () => {
         observe();
-        scheduleProcess(document);
+        scheduleProcess(targetDocument);
       }, { once: true });
       return;
     }
@@ -1775,6 +1899,8 @@ export function createPageImageReplacementController({
       observer.disconnect();
       observer = null;
     }
+    targetDocument?.removeEventListener?.('pointerdown', handlePointerIntent, true);
+    targetDocument?.removeEventListener?.('click', handlePointerIntent, true);
   }
 
   return {
