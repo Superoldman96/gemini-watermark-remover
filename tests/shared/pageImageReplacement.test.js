@@ -517,6 +517,89 @@ test('fetchBlobFromBackground should use provided fallback fetcher with the simp
   ]);
 });
 
+test('collectCandidateImages should include fullscreen dialog images outside generated-image containers', async () => {
+  await withPageImageTestEnv(async ({ MockHTMLImageElement }) => {
+    const actionCluster = {
+      querySelectorAll(selector) {
+        return selector === 'button,[role="button"]' ? [{}, {}, {}] : [];
+      },
+      parentElement: null
+    };
+    const image = new MockHTMLImageElement();
+    image.dataset = {};
+    image.src = 'blob:https://gemini.google.com/fullscreen-preview';
+    image.currentSrc = image.src;
+    image.naturalWidth = 1408;
+    image.naturalHeight = 768;
+    image.width = 1408;
+    image.height = 768;
+    image.clientWidth = 951;
+    image.clientHeight = 519;
+    image.parentElement = actionCluster;
+    image.closest = () => null;
+
+    const root = {
+      querySelectorAll(selector) {
+        if (selector === 'img') {
+          return [image];
+        }
+        return [];
+      }
+    };
+
+    assert.deepEqual(collectCandidateImages(root), [image]);
+  });
+});
+
+test('bindOriginalAssetUrlToImages should bind fullscreen dialog images discovered through generic img queries', async () => {
+  await withPageImageTestEnv(async ({ MockHTMLImageElement }) => {
+    const actionCluster = {
+      querySelectorAll(selector) {
+        return selector === 'button,[role="button"]' ? [{}, {}, {}] : [];
+      },
+      parentElement: null
+    };
+    const image = new MockHTMLImageElement();
+    image.dataset = {
+      gwrResponseId: 'r_example',
+      gwrDraftId: 'rc_example',
+      gwrConversationId: 'c_example'
+    };
+    image.src = 'blob:https://gemini.google.com/fullscreen-preview';
+    image.currentSrc = image.src;
+    image.naturalWidth = 1408;
+    image.naturalHeight = 768;
+    image.width = 1408;
+    image.height = 768;
+    image.clientWidth = 951;
+    image.clientHeight = 519;
+    image.parentElement = actionCluster;
+    image.closest = () => null;
+
+    const root = {
+      querySelectorAll(selector) {
+        if (selector === 'img') {
+          return [image];
+        }
+        return [];
+      }
+    };
+
+    const updatedCount = bindOriginalAssetUrlToImages({
+      root,
+      assetIds: {
+        responseId: 'r_example',
+        draftId: 'rc_example',
+        conversationId: 'c_example'
+      },
+      sourceUrl: 'https://lh3.googleusercontent.com/rd-gg/example=s0-rp'
+    });
+
+    assert.equal(updatedCount, 1);
+    assert.equal(image.dataset.gwrSourceUrl, 'https://lh3.googleusercontent.com/rd-gg/example=s0-rp');
+  });
+});
+
 test('processPageImageSource should process preview candidates and return selected strategy diagnostics', async () => {
   const sourceUrl = 'https://lh3.googleusercontent.com/gg/example-token=s1024-rj';
   const imageElement = { id: 'fixture-image' };
@@ -1211,12 +1294,29 @@ test('buildPageImageSourceRequest should assemble source processing dependencies
 
 test('bindOriginalAssetUrlToImages should attach original asset url to matching Gemini image cards', async () => {
   await withPageImageTestEnv(async ({ MockHTMLImageElement }) => {
+    const container = {
+      querySelectorAll(selector) {
+        return selector === 'button,[role="button"]' ? [{}, {}, {}] : [];
+      }
+    };
     const matchedImage = new MockHTMLImageElement();
     matchedImage.dataset = {
       gwrResponseId: 'r_d7ef418292ede05c',
       gwrDraftId: 'rc_2315ec0b5621fce5',
       gwrConversationId: 'c_cdec91057e5fdcaf'
     };
+    matchedImage.src = 'blob:https://gemini.google.com/matched';
+    matchedImage.currentSrc = matchedImage.src;
+    matchedImage.naturalWidth = 1024;
+    matchedImage.naturalHeight = 559;
+    matchedImage.width = 1024;
+    matchedImage.height = 559;
+    matchedImage.clientWidth = 456;
+    matchedImage.clientHeight = 249;
+    matchedImage.parentElement = container;
+    matchedImage.closest = (selector) => (
+      selector === 'generated-image,.generated-image-container' ? container : null
+    );
 
     const otherImage = new MockHTMLImageElement();
     otherImage.dataset = {
@@ -1224,6 +1324,18 @@ test('bindOriginalAssetUrlToImages should attach original asset url to matching 
       gwrDraftId: 'rc_other',
       gwrConversationId: 'c_cdec91057e5fdcaf'
     };
+    otherImage.src = 'blob:https://gemini.google.com/other';
+    otherImage.currentSrc = otherImage.src;
+    otherImage.naturalWidth = 1024;
+    otherImage.naturalHeight = 559;
+    otherImage.width = 1024;
+    otherImage.height = 559;
+    otherImage.clientWidth = 456;
+    otherImage.clientHeight = 249;
+    otherImage.parentElement = container;
+    otherImage.closest = (selector) => (
+      selector === 'generated-image,.generated-image-container' ? container : null
+    );
 
     const root = {
       querySelectorAll() {

@@ -98,3 +98,50 @@ test('installGeminiClipboardImageHook should fall back to the original clipboard
 
   dispose();
 });
+
+test('installGeminiClipboardImageHook should resolve blob object urls through image decoding instead of fetch', async () => {
+  const writtenItems = [];
+  const processedBlob = new Blob(['processed-from-image'], { type: 'image/png' });
+  const clipboard = {
+    async write(items) {
+      writtenItems.push(items);
+    }
+  };
+  const targetWindow = {
+    navigator: { clipboard },
+    ClipboardItem: MockClipboardItem
+  };
+
+  const dispose = installGeminiClipboardImageHook(targetWindow, {
+    getIntentMetadata: () => ({
+      imageElement: {
+        dataset: {
+          gwrWatermarkObjectUrl: 'blob:https://gemini.google.com/processed'
+        }
+      }
+    }),
+    fetchBlobDirect: async () => {
+      throw new Error('blob object urls should not be fetched through Fetch API');
+    },
+    resolveBlobViaImageElement: async ({ objectUrl, imageElement }) => {
+      assert.equal(objectUrl, 'blob:https://gemini.google.com/processed');
+      assert.equal(
+        imageElement?.dataset?.gwrWatermarkObjectUrl,
+        'blob:https://gemini.google.com/processed'
+      );
+      return processedBlob;
+    }
+  });
+
+  await clipboard.write([
+    new MockClipboardItem({
+      'image/jpeg': new Blob(['original'], { type: 'image/jpeg' })
+    })
+  ]);
+
+  assert.equal(writtenItems.length, 1);
+  assert.deepEqual(writtenItems[0][0].types, ['image/png']);
+  assert.equal(await writtenItems[0][0].getType('image/png'), processedBlob);
+
+  dispose();
+});

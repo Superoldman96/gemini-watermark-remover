@@ -76,8 +76,38 @@ test('userscript entry should preserve the intent target for fullscreen clipboar
 
   assert.match(intentGateCall, /resolveMetadata:\s*\(target\)\s*=>\s*\{/);
   assert.match(intentGateCall, /target,/);
-  assert.match(intentGateCall, /imageElement:\s*findNearbyGeminiImageElement\(targetWindow,\s*target,\s*assetIds\)/);
+  assert.match(intentGateCall, /const imageElement = findNearbyGeminiImageElement\(targetWindow,\s*target,\s*null\)/);
+  assert.match(intentGateCall, /const assetIds = extractGeminiImageAssetIds\(target\)\s*\|\|\s*extractGeminiImageAssetIds\(imageElement\)/);
+  assert.match(intentGateCall, /imageElement:\s*imageElement\s*\|\|\s*findNearbyGeminiImageElement\(targetWindow,\s*target,\s*assetIds\)/);
   assert.match(clipboardHookCall, /resolveImageElement:\s*\(intentMetadata\)\s*=>\s*findNearbyGeminiImageElement\(\s*targetWindow,\s*intentMetadata\?\.target\s*\|\|\s*null,\s*intentMetadata\?\.assetIds\s*\|\|\s*null\s*\)/);
+});
+
+test('userscript entry should search fullscreen dialog containers when resolving nearby Gemini images', () => {
+  const source = normalizeWhitespace(loadModuleSource('../../src/userscript/index.js', import.meta.url));
+
+  assert.equal(
+    source.includes(
+      "buttonLike?.closest?.('expansion-dialog,[role=\"dialog\"],.image-expansion-dialog-panel,.cdk-overlay-pane')"
+    ),
+    true
+  );
+});
+
+test('userscript entry should prefer a processed global asset match when fullscreen image is still unprocessed', () => {
+  const source = normalizeWhitespace(loadModuleSource('../../src/userscript/index.js', import.meta.url));
+
+  assert.equal(
+    source.includes('const globalAssetMatch = assetIds ? findGeminiImageElementForAssetIds(targetWindow?.document || document, assetIds) : null;'),
+    true
+  );
+  assert.equal(
+    source.includes('if (globalAssetMatch?.dataset?.gwrWatermarkObjectUrl) { return globalAssetMatch; }'),
+    true
+  );
+  assert.equal(
+    source.includes('fallbackMatch ||= imageElement;'),
+    true
+  );
 });
 
 test('userscript entry should install original-asset discovery hooks before async runtime initialization', () => {

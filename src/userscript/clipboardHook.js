@@ -2,6 +2,62 @@ function isImageMimeType(type) {
   return typeof type === 'string' && /^image\//i.test(type);
 }
 
+function isBlobUrl(url) {
+  return typeof url === 'string' && /^blob:/i.test(url);
+}
+
+function canvasToBlob(canvas, type = 'image/png') {
+  return new Promise((resolve, reject) => {
+    if (!canvas || typeof canvas.toBlob !== 'function') {
+      reject(new Error('Canvas toBlob unavailable'));
+      return;
+    }
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob);
+        return;
+      }
+      reject(new Error('Canvas toBlob returned null'));
+    }, type);
+  });
+}
+
+async function createBlobFromObjectUrlImage(objectUrl, imageElement, targetWindow = globalThis) {
+  const ImageClass = targetWindow?.Image || globalThis.Image;
+  const documentRef = imageElement?.ownerDocument || targetWindow?.document || globalThis.document;
+  if (typeof ImageClass !== 'function' || !documentRef?.createElement) {
+    throw new Error('Image decode fallback unavailable');
+  }
+
+  const image = new ImageClass();
+  image.decoding = 'async';
+  image.src = objectUrl;
+  if (typeof image.decode === 'function') {
+    await image.decode();
+  } else {
+    await new Promise((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error('Failed to load processed object URL'));
+    });
+  }
+
+  const width = Number(image.naturalWidth) || Number(image.width) || Number(imageElement?.naturalWidth) || Number(imageElement?.width) || 0;
+  const height = Number(image.naturalHeight) || Number(image.height) || Number(imageElement?.naturalHeight) || Number(imageElement?.height) || 0;
+  if (width <= 0 || height <= 0) {
+    throw new Error('Processed object URL image has no renderable size');
+  }
+
+  const canvas = documentRef.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext?.('2d', { willReadFrequently: true });
+  if (!context) {
+    throw new Error('2D canvas context unavailable');
+  }
+  context.drawImage(image, 0, 0, width, height);
+  return canvasToBlob(canvas, 'image/png');
+}
+
 async function buildClipboardReplacementItems(items, replacementBlob, ClipboardItemClass) {
   const replacementItems = [];
   let replacedAny = false;
@@ -34,7 +90,8 @@ async function buildClipboardReplacementItems(items, replacementBlob, ClipboardI
 async function resolveProcessedClipboardBlob({
   intentMetadata,
   resolveImageElement,
-  fetchBlobDirect
+  fetchBlobDirect,
+  resolveBlobViaImageElement
 }) {
   let imageElement = intentMetadata?.imageElement || null;
   if (
@@ -47,7 +104,24 @@ async function resolveProcessedClipboardBlob({
   const objectUrl = typeof imageElement?.dataset?.gwrWatermarkObjectUrl === 'string'
     ? imageElement.dataset.gwrWatermarkObjectUrl.trim()
     : '';
-  if (!objectUrl || typeof fetchBlobDirect !== 'function') {
+  if (!objectUrl) {
+    return null;
+  }
+
+  if (isBlobUrl(objectUrl) && typeof resolveBlobViaImageElement === 'function') {
+    try {
+      return await resolveBlobViaImageElement({
+        objectUrl,
+        imageElement
+      });
+    } catch (error) {
+      if (typeof fetchBlobDirect !== 'function') {
+        throw error;
+      }
+    }
+  }
+
+  if (typeof fetchBlobDirect !== 'function') {
     return null;
   }
 
@@ -61,6 +135,9 @@ export function installGeminiClipboardImageHook(targetWindow, {
     const response = await fetch(url);
     return response.blob();
   },
+  resolveBlobViaImageElement = ({ objectUrl, imageElement }) => (
+    createBlobFromObjectUrlImage(objectUrl, imageElement, targetWindow)
+  ),
   logger = console
 } = {}) {
   const clipboard = targetWindow?.navigator?.clipboard;
@@ -79,7 +156,8 @@ export function installGeminiClipboardImageHook(targetWindow, {
       const processedBlob = await resolveProcessedClipboardBlob({
         intentMetadata,
         resolveImageElement,
-        fetchBlobDirect
+        fetchBlobDirect,
+        resolveBlobViaImageElement
       });
       if (!processedBlob) {
         return originalWrite(items);

@@ -69,13 +69,20 @@ function findGeminiImageElementForAssetIds(root, assetIds) {
     return null;
   }
 
+  let fallbackMatch = null;
   for (const imageElement of root.querySelectorAll(getGeminiImageQuerySelector())) {
-    if (assetIdsMatch(extractGeminiImageAssetIds(imageElement), assetIds)) {
+    if (!assetIdsMatch(extractGeminiImageAssetIds(imageElement), assetIds)) {
+      continue;
+    }
+
+    if (imageElement?.dataset?.gwrWatermarkObjectUrl) {
       return imageElement;
     }
+
+    fallbackMatch ||= imageElement;
   }
 
-  return null;
+  return fallbackMatch;
 }
 
 function collectCandidateImagesFromRoot(root) {
@@ -127,20 +134,30 @@ function findNearbyGeminiImageElement(targetWindow, target, assetIds) {
   const buttonLike = typeof target?.closest === 'function'
     ? target.closest('button,[role="button"]')
     : null;
+  const globalAssetMatch = assetIds
+    ? findGeminiImageElementForAssetIds(targetWindow?.document || document, assetIds)
+    : null;
   const candidateRoots = [
     buttonLike?.closest?.('generated-image,.generated-image-container'),
     buttonLike?.closest?.('single-image'),
+    buttonLike?.closest?.('expansion-dialog,[role="dialog"],.image-expansion-dialog-panel,.cdk-overlay-pane'),
     buttonLike?.closest?.('[data-test-draft-id]')
   ].filter(Boolean);
 
   for (const root of candidateRoots) {
     const imageElement = findPreferredGeminiImageElement(root, assetIds);
+    if (imageElement?.dataset?.gwrWatermarkObjectUrl) {
+      return imageElement;
+    }
+    if (globalAssetMatch?.dataset?.gwrWatermarkObjectUrl) {
+      return globalAssetMatch;
+    }
     if (imageElement) {
       return imageElement;
     }
   }
 
-  return findGeminiImageElementForAssetIds(targetWindow?.document || document, assetIds);
+  return globalAssetMatch;
 }
 
 (async function init() {
@@ -189,11 +206,13 @@ function findNearbyGeminiImageElement(targetWindow, target, assetIds) {
     const downloadIntentGate = createGeminiDownloadIntentGate({
       targetWindow,
       resolveMetadata: (target) => {
-        const assetIds = extractGeminiImageAssetIds(target);
+        const imageElement = findNearbyGeminiImageElement(targetWindow, target, null);
+        const assetIds = extractGeminiImageAssetIds(target)
+          || extractGeminiImageAssetIds(imageElement);
         return {
           target,
           assetIds,
-          imageElement: findNearbyGeminiImageElement(targetWindow, target, assetIds)
+          imageElement: imageElement || findNearbyGeminiImageElement(targetWindow, target, assetIds)
         };
       }
     });

@@ -963,6 +963,9 @@ export function collectCandidateImages(root) {
     for (const image of root.querySelectorAll(getGeminiImageQuerySelector())) {
       addProcessableCandidateImage(candidates, image);
     }
+    for (const image of root.querySelectorAll('img')) {
+      addProcessableCandidateImage(candidates, image);
+    }
   }
   return [...candidates];
 }
@@ -1652,10 +1655,6 @@ function assetIdsMatch(candidate = null, target = null) {
 }
 
 function collectBindableImages(root) {
-  const querySelector = getGeminiImageQuerySelector();
-  if (root && typeof root.querySelectorAll === 'function') {
-    return Array.from(root.querySelectorAll(querySelector));
-  }
   return collectCandidateImages(root);
 }
 
