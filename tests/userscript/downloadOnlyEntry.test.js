@@ -14,7 +14,10 @@ test('userscript entry should install download hook and page image replacement w
   assert.equal(hasImportedBinding(source, './downloadHook.js', 'installGeminiDownloadHook'), true);
   assert.equal(hasImportedBinding(source, './downloadHook.js', 'createGeminiDownloadRpcFetchHook'), true);
   assert.equal(hasImportedBinding(source, './downloadHook.js', 'installGeminiDownloadRpcXmlHttpRequestHook'), true);
+  assert.equal(hasImportedBinding(source, './downloadHook.js', 'resolveGeminiActionKind'), true);
   assert.equal(hasImportedBinding(source, '../shared/pageImageReplacement.js', 'installPageImageReplacement'), true);
+  assert.equal(hasImportedBinding(source, '../shared/imageSessionStore.js', 'getDefaultImageSessionStore'), true);
+  assert.equal(hasImportedBinding(source, './actionContext.js', 'createGeminiActionContextResolver'), true);
   assert.equal(hasImportedBinding(source, './historyBindingBootstrap.js', 'requestGeminiConversationHistoryBindings'), true);
   assert.equal(hasImportedBinding(source, './processBridge.js', 'installUserscriptProcessBridge'), true);
    assert.equal(hasImportedBinding(source, './pageProcessBridge.js', 'createPageProcessBridgeClient'), true);
@@ -60,8 +63,8 @@ test('userscript entry should route page image processing through page runtime b
   assert.equal(hasImportedBinding(source, './urlUtils.js', 'isGeminiOriginalAssetUrl'), true);
   assert.match(normalizeWhitespace(source), /await installInjectedPageProcessorRuntime\(/);
   assert.match(installDownloadHookCall, /isTargetUrl:\s*isGeminiOriginalAssetUrl/);
-  assert.match(installDownloadRpcHookCall, /getIntentMetadata:\s*\(\)\s*=>\s*downloadIntentGate\.getRecentIntentMetadata\(\)/);
-  assert.match(installDownloadRpcXhrHookCall, /getIntentMetadata:\s*\(\)\s*=>\s*downloadIntentGate\.getRecentIntentMetadata\(\)/);
+  assert.match(installDownloadRpcHookCall, /getActionContext:\s*\(\)\s*=>\s*downloadIntentGate\.getRecentActionContext\(\)/);
+  assert.match(installDownloadRpcXhrHookCall, /getActionContext:\s*\(\)\s*=>\s*downloadIntentGate\.getRecentActionContext\(\)/);
   assert.match(normalizeWhitespace(source), /const removeWatermarkFromBestAvailablePath = \(blob,\s*options = \{\}\) => \(\s*pageProcessClient\?\.removeWatermarkFromBlob\s*\?\s*pageProcessClient\.removeWatermarkFromBlob\(blob,\s*options\)\s*:\s*processingRuntime\.removeWatermarkFromBlob\(blob,\s*options\)\s*\)/);
   assert.match(installDownloadHookCall, /processBlob:\s*removeWatermarkFromBestAvailablePath/);
   assert.match(installPageReplacementCall, /processWatermarkBlobImpl:\s*pageProcessClient\.processWatermarkBlob/);
@@ -74,16 +77,29 @@ test('userscript entry should preserve the intent target for fullscreen clipboar
   const intentGateCall = normalizeWhitespace(getCallSource(source, 'createGeminiDownloadIntentGate'));
   const clipboardHookCall = normalizeWhitespace(getCallSource(source, 'installGeminiClipboardImageHook'));
 
-  assert.match(intentGateCall, /resolveMetadata:\s*\(target\)\s*=>\s*\{/);
+  assert.match(intentGateCall, /resolveActionContext:\s*\(target\)\s*=>\s*\{/);
   assert.match(intentGateCall, /target,/);
-  assert.match(intentGateCall, /const imageElement = findNearbyGeminiImageElement\(targetWindow,\s*target,\s*null\)/);
-  assert.match(intentGateCall, /const assetIds = extractGeminiImageAssetIds\(target\)\s*\|\|\s*extractGeminiImageAssetIds\(imageElement\)/);
-  assert.match(intentGateCall, /imageElement:\s*imageElement\s*\|\|\s*findNearbyGeminiImageElement\(targetWindow,\s*target,\s*assetIds\)/);
-  assert.match(clipboardHookCall, /resolveImageElement:\s*\(intentMetadata\)\s*=>\s*findNearbyGeminiImageElement\(\s*targetWindow,\s*intentMetadata\?\.target\s*\|\|\s*null,\s*intentMetadata\?\.assetIds\s*\|\|\s*null\s*\)/);
+  assert.match(intentGateCall, /const intentAction = resolveGeminiActionKind\(target\)\s*\|\|\s*'clipboard'/);
+  assert.match(intentGateCall, /const sessionContext = actionContextResolver\.resolveActionContext\(/);
+  assert.match(intentGateCall, /action:\s*intentAction/);
+  assert.match(intentGateCall, /sessionKey:\s*sessionContext\.sessionKey/);
+  assert.match(intentGateCall, /assetIds:\s*sessionContext\.assetIds/);
+  assert.match(intentGateCall, /resource:\s*sessionContext\.resource/);
+  assert.match(clipboardHookCall, /getActionContext:\s*\(\)\s*=>\s*downloadIntentGate\.getRecentActionContext\(\)/);
+  assert.match(clipboardHookCall, /resolveImageElement:\s*\(actionContext\)\s*=>\s*actionContextResolver\.resolveImageElement\(actionContext\)/);
+  assert.match(clipboardHookCall, /imageSessionStore:\s*imageSessionStore/);
+});
+
+test('userscript entry should wire the action resolver directly into the intent gate', () => {
+  const source = normalizeWhitespace(loadModuleSource('../../src/userscript/downloadHook.js', import.meta.url));
+
+  assert.match(source, /const intentGate = options\?\.intentGate \|\| createGeminiDownloadIntentGate\(\{ targetWindow,\s*resolveActionContext:\s*options\?\.resolveActionContext \}\)/);
+  assert.doesNotMatch(source, /resolveIntentMetadata/);
+  assert.doesNotMatch(source, /resolveMetadata/);
 });
 
 test('userscript entry should search fullscreen dialog containers when resolving nearby Gemini images', () => {
-  const source = normalizeWhitespace(loadModuleSource('../../src/userscript/index.js', import.meta.url));
+  const source = normalizeWhitespace(loadModuleSource('../../src/userscript/actionContext.js', import.meta.url));
 
   assert.equal(
     source.includes(
@@ -94,7 +110,7 @@ test('userscript entry should search fullscreen dialog containers when resolving
 });
 
 test('userscript entry should prefer a processed global asset match when fullscreen image is still unprocessed', () => {
-  const source = normalizeWhitespace(loadModuleSource('../../src/userscript/index.js', import.meta.url));
+  const source = normalizeWhitespace(loadModuleSource('../../src/userscript/actionContext.js', import.meta.url));
 
   assert.equal(
     source.includes('const globalAssetMatch = assetIds ? findGeminiImageElementForAssetIds(targetWindow?.document || document, assetIds) : null;'),
@@ -134,6 +150,28 @@ test('userscript entry should install original-asset discovery hooks before asyn
   assert.ok(xhrHookIndex < pageRuntimeInitIndex, 'rpc xhr hook should be installed before page runtime injection await');
   assert.ok(downloadHookIndex < pageRuntimeInitIndex, 'download hook should be installed before page runtime injection await');
   assert.ok(historyBootstrapIndex < pageRuntimeInitIndex, 'conversation history bootstrap should run before page runtime injection await');
+});
+
+test('userscript entry should reuse one shared image session store across page replacement and original-asset binding', () => {
+  const source = loadModuleSource('../../src/userscript/index.js', import.meta.url);
+  const bindCall = normalizeWhitespace(getCallSource(source, 'bindOriginalAssetUrlToImages'));
+  const pageReplacementCall = normalizeWhitespace(getCallSource(source, 'installPageImageReplacement'));
+
+  assert.match(normalizeWhitespace(source), /const imageSessionStore = getDefaultImageSessionStore\(\)/);
+  assert.match(bindCall, /imageSessionStore(?:\s*:\s*imageSessionStore)?/);
+  assert.match(pageReplacementCall, /imageSessionStore(?:\s*:\s*imageSessionStore)?/);
+});
+
+test('userscript entry should resolve discovered asset payloads through the shared compat helper', () => {
+  const source = normalizeWhitespace(loadModuleSource('../../src/userscript/index.js', import.meta.url));
+
+  assert.equal(
+    hasImportedBinding(source, '../shared/actionContextCompat.js', 'resolveCompatibleActionContextFromPayload'),
+    true
+  );
+  assert.match(source, /const handleOriginalAssetDiscovered = \(payload = \{\}\) => \{/);
+  assert.match(source, /const resolvedActionContext = resolveCompatibleActionContextFromPayload\(payload\)/);
+  assert.doesNotMatch(source, /intentMetadata/);
 });
 
 test('userscript entry should delegate watermark runtime logic to processingRuntime module', () => {

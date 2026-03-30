@@ -3,6 +3,11 @@ import {
   isGeminiOriginalAssetUrl,
   normalizeGoogleusercontentImageUrl
 } from './urlUtils.js';
+import {
+  appendCompatibleActionContext,
+  createActionContextProvider,
+  getActionContextFromIntentGate
+} from '../shared/actionContextCompat.js';
 
 function buildHookRequestArgs(args, normalizedUrl) {
   const nextArgs = [...args];
@@ -77,6 +82,20 @@ function buildProcessedResponse(response, blob) {
   });
 }
 
+function buildDirectBlobResponse(blob, mimeType = '') {
+  const headers = new Headers();
+  const resolvedMimeType = mimeType || blob?.type || 'application/octet-stream';
+  if (resolvedMimeType) {
+    headers.set('content-type', resolvedMimeType);
+  }
+
+  return new Response(blob, {
+    status: 200,
+    statusText: 'OK',
+    headers
+  });
+}
+
 function isImageResponse(response) {
   const contentType = response?.headers?.get?.('content-type') || '';
   if (!contentType) {
@@ -96,7 +115,16 @@ function serializeResponseHeaders(headers) {
   return entries;
 }
 
+function shouldReuseProcessedDownloadResource(actionContext) {
+  return actionContext?.action === 'download'
+    && actionContext?.resource?.kind === 'processed'
+    && actionContext?.resource?.slot === 'full'
+    && actionContext.resource.blob instanceof Blob;
+}
+
 const DOWNLOAD_ACTION_LABEL_PATTERN = /(download|copy|下载|复制)/i;
+const COPY_ACTION_LABEL_PATTERN = /(copy|复制)/i;
+const EXPLICIT_DOWNLOAD_ACTION_LABEL_PATTERN = /(download|下载)/i;
 const INTENT_EVENT_TYPES = ['click', 'keydown'];
 const DEFAULT_INTENT_WINDOW_MS = 5000;
 const GEMINI_DOWNLOAD_RPC_HOST = 'gemini.google.com';
@@ -141,28 +169,59 @@ export function isGeminiDownloadActionTarget(target) {
   return collectButtonLikeLabels(target).some((label) => DOWNLOAD_ACTION_LABEL_PATTERN.test(label));
 }
 
+export function resolveGeminiActionKind(target) {
+  const labels = collectButtonLikeLabels(target);
+  if (labels.some((label) => COPY_ACTION_LABEL_PATTERN.test(label))) {
+    return 'clipboard';
+  }
+  if (labels.some((label) => EXPLICIT_DOWNLOAD_ACTION_LABEL_PATTERN.test(label))) {
+    return 'download';
+  }
+  return '';
+}
+
 export function createGeminiDownloadIntentGate({
   targetWindow = globalThis,
   now = () => Date.now(),
   windowMs = DEFAULT_INTENT_WINDOW_MS,
-  resolveMetadata = () => null
+  resolveActionContext = null
 } = {}) {
   let armedUntil = 0;
-  let recentIntentMetadata = null;
+  let recentActionContext = null;
+  let recentIntentTarget = null;
 
-  function arm(metadata = null) {
-    armedUntil = Math.max(armedUntil, now() + windowMs);
-    recentIntentMetadata = metadata && typeof metadata === 'object'
-      ? { ...metadata }
+  function cloneActionContext(actionContext = null) {
+    return actionContext && typeof actionContext === 'object'
+      ? { ...actionContext }
       : null;
+  }
+
+  function arm(actionContext = null, target = null) {
+    armedUntil = Math.max(armedUntil, now() + windowMs);
+    recentActionContext = cloneActionContext(actionContext);
+    recentIntentTarget = target || recentIntentTarget || null;
   }
 
   function hasRecentIntent() {
     return now() <= armedUntil;
   }
 
-  function getRecentIntentMetadata() {
-    return hasRecentIntent() ? recentIntentMetadata : null;
+  function getRecentActionContext() {
+    if (!hasRecentIntent()) {
+      return null;
+    }
+
+    if (recentIntentTarget && typeof resolveActionContext === 'function') {
+      const refreshedActionContext = cloneActionContext(
+        resolveActionContext(recentIntentTarget, null)
+      );
+      if (refreshedActionContext) {
+        recentActionContext = refreshedActionContext;
+        return refreshedActionContext;
+      }
+    }
+
+    return recentActionContext;
   }
 
   function handleEvent(event) {
@@ -178,10 +237,10 @@ export function createGeminiDownloadIntentGate({
     }
 
     if (isGeminiDownloadActionTarget(event.target)) {
-      const metadata = typeof resolveMetadata === 'function'
-        ? resolveMetadata(event.target, event)
+      const actionContext = typeof resolveActionContext === 'function'
+        ? resolveActionContext(event.target, event)
         : null;
-      arm(metadata);
+      arm(actionContext, event.target);
     }
   }
 
@@ -192,7 +251,7 @@ export function createGeminiDownloadIntentGate({
   return {
     arm,
     hasRecentIntent,
-    getRecentIntentMetadata,
+    getRecentActionContext,
     handleEvent,
     dispose() {
       for (const eventType of INTENT_EVENT_TYPES) {
@@ -701,23 +760,23 @@ export function extractGeminiAssetBindingsFromResponseText(responseText) {
   return bindings;
 }
 
-function mergeGeminiIntentMetadata(intentMetadata, assetIds) {
-  const baseMetadata = intentMetadata && typeof intentMetadata === 'object'
-    ? { ...intentMetadata }
+function mergeGeminiActionContext(actionContext, assetIds) {
+  const baseActionContext = actionContext && typeof actionContext === 'object'
+    ? { ...actionContext }
     : {};
   const mergedAssetIds = {
-    ...(baseMetadata.assetIds && typeof baseMetadata.assetIds === 'object'
-      ? baseMetadata.assetIds
+    ...(baseActionContext.assetIds && typeof baseActionContext.assetIds === 'object'
+      ? baseActionContext.assetIds
       : {}),
     ...(assetIds && typeof assetIds === 'object' ? assetIds : {})
   };
 
   if (!mergedAssetIds.responseId && !mergedAssetIds.draftId && !mergedAssetIds.conversationId) {
-    return Object.keys(baseMetadata).length > 0 ? baseMetadata : null;
+    return Object.keys(baseActionContext).length > 0 ? baseActionContext : null;
   }
 
   return {
-    ...baseMetadata,
+    ...baseActionContext,
     assetIds: mergedAssetIds
   };
 }
@@ -726,13 +785,14 @@ async function notifyGeminiOriginalAssetsFromRpcPayload({
   rpcUrl,
   requestAssetIds = null,
   responseText = '',
-  getIntentMetadata = () => null,
+  provideActionContext = () => null,
   onOriginalAssetDiscovered = null
 } = {}) {
-  const intentMetadata = typeof getIntentMetadata === 'function'
-    ? getIntentMetadata({ rpcUrl })
-    : null;
-  const resolvedIntentMetadata = mergeGeminiIntentMetadata(intentMetadata, requestAssetIds);
+  const actionContext = provideActionContext({ rpcUrl });
+  const resolvedActionContext = mergeGeminiActionContext(
+    actionContext,
+    requestAssetIds
+  );
   if (typeof onOriginalAssetDiscovered !== 'function') {
     return;
   }
@@ -740,42 +800,45 @@ async function notifyGeminiOriginalAssetsFromRpcPayload({
   const responseBindings = extractGeminiAssetBindingsFromResponseText(responseText);
   if (responseBindings.length > 0) {
     for (const binding of responseBindings) {
-      const mergedIntentMetadata = mergeGeminiIntentMetadata(
-        resolvedIntentMetadata,
+      const mergedActionContext = mergeGeminiActionContext(
+        resolvedActionContext,
         binding.assetIds
       );
-      await onOriginalAssetDiscovered({
+      await onOriginalAssetDiscovered(appendCompatibleActionContext({
         rpcUrl,
-        discoveredUrl: binding.discoveredUrl,
-        intentMetadata: mergedIntentMetadata
-      });
+        discoveredUrl: binding.discoveredUrl
+      }, mergedActionContext));
     }
     return;
   }
 
-  if (!resolvedIntentMetadata) {
+  if (!resolvedActionContext) {
     return;
   }
 
   const discoveredUrls = extractGeminiOriginalAssetUrlsFromResponseText(responseText);
   for (const discoveredUrl of discoveredUrls) {
-    await onOriginalAssetDiscovered({
+    await onOriginalAssetDiscovered(appendCompatibleActionContext({
       rpcUrl,
-      discoveredUrl,
-      intentMetadata: resolvedIntentMetadata
-    });
+      discoveredUrl
+    }, resolvedActionContext));
   }
 }
 
 export function createGeminiDownloadRpcFetchHook({
   originalFetch,
-  getIntentMetadata = () => null,
+  provideActionContext = null,
+  getActionContext = () => null,
   onOriginalAssetDiscovered = null,
   logger = console
 }) {
   if (typeof originalFetch !== 'function') {
     throw new TypeError('originalFetch must be a function');
   }
+
+  const resolveActionContextProvider = typeof provideActionContext === 'function'
+    ? provideActionContext
+    : createActionContextProvider({ getActionContext });
 
   return async function geminiDownloadRpcFetchHook(...args) {
     if (shouldBypassHook(args)) {
@@ -800,11 +863,7 @@ export function createGeminiDownloadRpcFetchHook({
         rpcUrl,
         requestAssetIds,
         responseText,
-        getIntentMetadata: () => (
-          typeof getIntentMetadata === 'function'
-            ? getIntentMetadata({ args, rpcUrl })
-            : null
-        ),
+        provideActionContext: () => resolveActionContextProvider({ args, rpcUrl }),
         onOriginalAssetDiscovered
       });
     } catch (error) {
@@ -816,7 +875,8 @@ export function createGeminiDownloadRpcFetchHook({
 }
 
 export function installGeminiDownloadRpcXmlHttpRequestHook(targetWindow, {
-  getIntentMetadata = () => null,
+  provideActionContext = null,
+  getActionContext = () => null,
   onOriginalAssetDiscovered = null,
   logger = console
 } = {}) {
@@ -835,6 +895,9 @@ export function installGeminiDownloadRpcXmlHttpRequestHook(targetWindow, {
 
   const originalOpen = prototype.open;
   const originalSend = prototype.send;
+  const resolveActionContextProvider = typeof provideActionContext === 'function'
+    ? provideActionContext
+    : createActionContextProvider({ getActionContext });
 
   prototype.open = function gwrGeminiRpcOpen(method, url, ...rest) {
     this[GEMINI_XHR_HOOK_STATE] = {
@@ -877,7 +940,7 @@ export function installGeminiDownloadRpcXmlHttpRequestHook(targetWindow, {
           rpcUrl,
           requestAssetIds: extractGeminiAssetIdsFromRpcRequestBody(currentState?.requestBody),
           responseText,
-          getIntentMetadata,
+          provideActionContext: resolveActionContextProvider,
           onOriginalAssetDiscovered
         }).catch((error) => {
           logger?.warn?.('[Gemini Watermark Remover] Download RPC XHR hook processing failed:', error);
@@ -903,7 +966,8 @@ export function createGeminiDownloadFetchHook({
   isTargetUrl,
   normalizeUrl,
   processBlob,
-  getIntentMetadata = () => null,
+  provideActionContext = null,
+  getActionContext = () => null,
   onOriginalAssetDiscovered = null,
   shouldProcessRequest = () => true,
   logger = console,
@@ -924,6 +988,9 @@ export function createGeminiDownloadFetchHook({
   if (typeof shouldProcessRequest !== 'function') {
     throw new TypeError('shouldProcessRequest must be a function');
   }
+  const resolveActionContextProvider = typeof provideActionContext === 'function'
+    ? provideActionContext
+    : createActionContextProvider({ getActionContext });
 
   return async function geminiDownloadFetchHook(...args) {
     if (shouldBypassHook(args)) {
@@ -940,6 +1007,14 @@ export function createGeminiDownloadFetchHook({
     }
 
     const normalizedUrl = normalizeUrl(url);
+    const resolvedActionContext = resolveActionContextProvider({ args, url, normalizedUrl });
+    if (shouldReuseProcessedDownloadResource(resolvedActionContext)) {
+      return buildDirectBlobResponse(
+        resolvedActionContext.resource.blob,
+        resolvedActionContext.resource.mimeType || ''
+      );
+    }
+
     const hookArgs = buildHookRequestArgs(args, normalizedUrl);
     const response = await originalFetch(...hookArgs);
     if (!response?.ok) {
@@ -954,9 +1029,6 @@ export function createGeminiDownloadFetchHook({
     try {
       let pendingBlob = cache.get(normalizedUrl);
       if (!pendingBlob) {
-        const intentMetadata = typeof getIntentMetadata === 'function'
-          ? getIntentMetadata({ args, url, normalizedUrl })
-          : null;
         pendingBlob = response.blob()
           .then(async (blob) => {
             const processingContext = {
@@ -966,11 +1038,13 @@ export function createGeminiDownloadFetchHook({
               responseStatusText: response.statusText,
               responseHeaders: serializeResponseHeaders(response.headers)
             };
-            if (intentMetadata != null) {
-              processingContext.intentMetadata = intentMetadata;
+            if (resolvedActionContext != null) {
+              processingContext.actionContext = resolvedActionContext;
             }
             if (typeof onOriginalAssetDiscovered === 'function') {
-              await onOriginalAssetDiscovered(processingContext);
+              await onOriginalAssetDiscovered(
+                appendCompatibleActionContext(processingContext, resolvedActionContext)
+              );
             }
             return processBlob(blob, processingContext);
           })
@@ -998,14 +1072,14 @@ export function installGeminiDownloadHook(targetWindow, options) {
 
   const intentGate = options?.intentGate || createGeminiDownloadIntentGate({
     targetWindow,
-    resolveMetadata: options?.resolveIntentMetadata
+    resolveActionContext: options?.resolveActionContext
   });
   const originalFetch = typeof options?.originalFetch === 'function'
     ? options.originalFetch
     : targetWindow.fetch;
   const hook = createGeminiDownloadFetchHook({
     ...options,
-    getIntentMetadata: () => intentGate.getRecentIntentMetadata(),
+    getActionContext: () => getActionContextFromIntentGate(intentGate),
     shouldProcessRequest: options?.shouldProcessRequest || (() => intentGate.hasRecentIntent()),
     originalFetch
   });

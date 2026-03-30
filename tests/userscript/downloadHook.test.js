@@ -11,7 +11,9 @@ import {
   extractGeminiGeneratedAssetUrlsFromResponseText,
   extractGeminiOriginalAssetUrlsFromResponseText,
   isGeminiDownloadRpcUrl,
-  isGeminiDownloadActionTarget
+  isGeminiDownloadActionTarget,
+  installGeminiDownloadHook,
+  resolveGeminiActionKind
 } from '../../src/userscript/downloadHook.js';
 import { isGeminiOriginalAssetUrl } from '../../src/userscript/urlUtils.js';
 
@@ -309,6 +311,41 @@ test('isGeminiDownloadActionTarget should recognize copy and download buttons bu
   }), false);
 });
 
+test('resolveGeminiActionKind should distinguish copy and download gestures from button labels', () => {
+  assert.equal(resolveGeminiActionKind({
+    closest() {
+      return {
+        getAttribute(name) {
+          return name === 'aria-label' ? 'Copy image' : '';
+        },
+        textContent: ''
+      };
+    }
+  }), 'clipboard');
+
+  assert.equal(resolveGeminiActionKind({
+    closest() {
+      return {
+        getAttribute(name) {
+          return name === 'aria-label' ? '下载完整尺寸的图片' : '';
+        },
+        textContent: ''
+      };
+    }
+  }), 'download');
+
+  assert.equal(resolveGeminiActionKind({
+    closest() {
+      return {
+        getAttribute(name) {
+          return name === 'aria-label' ? '分享图片' : '';
+        },
+        textContent: ''
+      };
+    }
+  }), '');
+});
+
 test('createGeminiDownloadIntentGate should arm only for explicit copy or download gestures', () => {
   let now = 100;
   const listeners = new Map();
@@ -362,7 +399,7 @@ test('createGeminiDownloadIntentGate should arm only for explicit copy or downlo
   assert.equal(listeners.size, 0);
 });
 
-test('createGeminiDownloadIntentGate should retain asset ids for the latest explicit download intent', () => {
+test('createGeminiDownloadIntentGate should retain asset ids for the latest explicit download action context', () => {
   let now = 100;
   const listeners = new Map();
   const targetWindow = {
@@ -378,7 +415,7 @@ test('createGeminiDownloadIntentGate should retain asset ids for the latest expl
     targetWindow,
     now: () => now,
     windowMs: 5000,
-    resolveMetadata: () => ({
+    resolveActionContext: () => ({
       assetIds: {
         responseId: 'r_d7ef418292ede05c',
         draftId: 'rc_2315ec0b5621fce5',
@@ -400,7 +437,7 @@ test('createGeminiDownloadIntentGate should retain asset ids for the latest expl
     }
   });
 
-  assert.deepEqual(gate.getRecentIntentMetadata(), {
+  assert.deepEqual(gate.getRecentActionContext(), {
     assetIds: {
       responseId: 'r_d7ef418292ede05c',
       draftId: 'rc_2315ec0b5621fce5',
@@ -409,7 +446,240 @@ test('createGeminiDownloadIntentGate should retain asset ids for the latest expl
   });
 
   now += 6000;
-  assert.equal(gate.getRecentIntentMetadata(), null);
+  assert.equal(gate.getRecentActionContext(), null);
+});
+
+test('createGeminiDownloadIntentGate should retain session-scoped action context for the latest explicit download intent', () => {
+  let now = 100;
+  const listeners = new Map();
+  const targetWindow = {
+    addEventListener(type, listener) {
+      listeners.set(type, listener);
+    },
+    removeEventListener(type) {
+      listeners.delete(type);
+    }
+  };
+
+  const gate = createGeminiDownloadIntentGate({
+    targetWindow,
+    now: () => now,
+    windowMs: 5000,
+    resolveActionContext: () => ({
+      action: 'download',
+      sessionKey: 'draft:rc_download_context',
+      assetIds: {
+        responseId: 'r_download_context',
+        draftId: 'rc_download_context',
+        conversationId: 'c_download_context'
+      },
+      resource: {
+        kind: 'processed',
+        url: 'blob:https://gemini.google.com/download-context-processed',
+        mimeType: 'image/png',
+        processedMeta: null,
+        source: 'page-fetch'
+      }
+    })
+  });
+
+  listeners.get('click')?.({
+    target: {
+      closest() {
+        return {
+          getAttribute(name) {
+            return name === 'aria-label' ? 'Download image' : '';
+          },
+          textContent: ''
+        };
+      }
+    }
+  });
+
+  assert.deepEqual(gate.getRecentActionContext(), {
+    action: 'download',
+    sessionKey: 'draft:rc_download_context',
+    assetIds: {
+      responseId: 'r_download_context',
+      draftId: 'rc_download_context',
+      conversationId: 'c_download_context'
+    },
+    resource: {
+      kind: 'processed',
+      url: 'blob:https://gemini.google.com/download-context-processed',
+      mimeType: 'image/png',
+      processedMeta: null,
+      source: 'page-fetch'
+    }
+  });
+});
+
+test('createGeminiDownloadIntentGate should refresh recent action context from the latest resolver state', () => {
+  let now = 100;
+  const listeners = new Map();
+  const targetWindow = {
+    addEventListener(type, listener) {
+      listeners.set(type, listener);
+    },
+    removeEventListener(type) {
+      listeners.delete(type);
+    }
+  };
+  const refreshedFullBlob = new Blob(['full-refresh'], { type: 'image/png' });
+  let latestActionContext = {
+    action: 'download',
+    sessionKey: 'draft:rc_refresh_context',
+    assetIds: {
+      responseId: 'r_refresh_context',
+      draftId: 'rc_refresh_context',
+      conversationId: 'c_refresh_context'
+    },
+    resource: {
+      kind: 'processed',
+      url: 'blob:https://gemini.google.com/refresh-preview',
+      mimeType: 'image/png',
+      processedMeta: null,
+      source: 'preview-candidate',
+      slot: 'preview'
+    }
+  };
+
+  const gate = createGeminiDownloadIntentGate({
+    targetWindow,
+    now: () => now,
+    windowMs: 5000,
+    resolveActionContext: () => latestActionContext
+  });
+
+  listeners.get('click')?.({
+    target: {
+      closest() {
+        return {
+          getAttribute(name) {
+            return name === 'aria-label' ? 'Download image' : '';
+          },
+          textContent: ''
+        };
+      }
+    }
+  });
+
+  latestActionContext = {
+    ...latestActionContext,
+    resource: {
+      kind: 'processed',
+      url: 'blob:https://gemini.google.com/refresh-full',
+      blob: refreshedFullBlob,
+      mimeType: 'image/png',
+      processedMeta: null,
+      source: 'original-download',
+      slot: 'full'
+    }
+  };
+
+  assert.deepEqual(gate.getRecentActionContext(), latestActionContext);
+});
+
+test('createGeminiDownloadIntentGate should support resolveActionContext as the primary resolver name', () => {
+  let now = 100;
+  const listeners = new Map();
+  const targetWindow = {
+    addEventListener(type, listener) {
+      listeners.set(type, listener);
+    },
+    removeEventListener(type) {
+      listeners.delete(type);
+    }
+  };
+
+  const gate = createGeminiDownloadIntentGate({
+    targetWindow,
+    now: () => now,
+    windowMs: 5000,
+    resolveActionContext: () => ({
+      action: 'download',
+      sessionKey: 'draft:rc_action_context_alias',
+      assetIds: {
+        responseId: 'r_action_context_alias',
+        draftId: 'rc_action_context_alias',
+        conversationId: 'c_action_context_alias'
+      }
+    })
+  });
+
+  listeners.get('click')?.({
+    target: {
+      closest() {
+        return {
+          getAttribute(name) {
+            return name === 'aria-label' ? 'Download image' : '';
+          },
+          textContent: ''
+        };
+      }
+    }
+  });
+
+  assert.deepEqual(gate.getRecentActionContext(), {
+    action: 'download',
+    sessionKey: 'draft:rc_action_context_alias',
+    assetIds: {
+      responseId: 'r_action_context_alias',
+      draftId: 'rc_action_context_alias',
+      conversationId: 'c_action_context_alias'
+    }
+  });
+});
+
+test('createGeminiDownloadIntentGate should expose getRecentActionContext as the primary accessor', () => {
+  let now = 100;
+  const listeners = new Map();
+  const targetWindow = {
+    addEventListener(type, listener) {
+      listeners.set(type, listener);
+    },
+    removeEventListener(type) {
+      listeners.delete(type);
+    }
+  };
+
+  const gate = createGeminiDownloadIntentGate({
+    targetWindow,
+    now: () => now,
+    windowMs: 5000,
+    resolveActionContext: () => ({
+      action: 'clipboard',
+      sessionKey: 'draft:rc_recent_action_context',
+      assetIds: {
+        responseId: 'r_recent_action_context',
+        draftId: 'rc_recent_action_context',
+        conversationId: 'c_recent_action_context'
+      }
+    })
+  });
+
+  listeners.get('click')?.({
+    target: {
+      closest() {
+        return {
+          getAttribute(name) {
+            return name === 'aria-label' ? 'Copy image' : '';
+          },
+          textContent: ''
+        };
+      }
+    }
+  });
+
+  assert.deepEqual(gate.getRecentActionContext(), {
+    action: 'clipboard',
+    sessionKey: 'draft:rc_recent_action_context',
+    assetIds: {
+      responseId: 'r_recent_action_context',
+      draftId: 'rc_recent_action_context',
+      conversationId: 'c_recent_action_context'
+    }
+  });
 });
 
 test('createGeminiDownloadFetchHook should bypass targeted Gemini asset requests until a processing intent is armed', async () => {
@@ -577,7 +847,7 @@ test('createGeminiDownloadRpcFetchHook should notify discovered original asset u
 
   const hook = createGeminiDownloadRpcFetchHook({
     originalFetch,
-    getIntentMetadata: () => ({
+    getActionContext: () => ({
       assetIds: {
         responseId: 'r_d7ef418292ede05c',
         draftId: 'rc_2315ec0b5621fce5',
@@ -596,7 +866,7 @@ test('createGeminiDownloadRpcFetchHook should notify discovered original asset u
   assert.deepEqual(seen, [{
     rpcUrl: 'https://gemini.google.com/_/BardChatUi/data/batchexecute?rpcids=c8o8Fe&rt=c',
     discoveredUrl: 'https://lh3.googleusercontent.com/rd-gg-dl/token=s0-rj',
-    intentMetadata: {
+    actionContext: {
       assetIds: {
         responseId: 'r_d7ef418292ede05c',
         draftId: 'rc_2315ec0b5621fce5',
@@ -606,7 +876,7 @@ test('createGeminiDownloadRpcFetchHook should notify discovered original asset u
   }]);
 });
 
-test('createGeminiDownloadRpcFetchHook should fallback to parsing asset ids from rpc request body when recent intent metadata is missing', async () => {
+test('createGeminiDownloadRpcFetchHook should prefer provideActionContext over getter aliases', async () => {
   const seen = [];
   const originalFetch = async () => new Response(
     ')]}\'\n123\n[["wrb.fr","c8o8Fe","[null,\\\"https:\\\\/\\\\/lh3.googleusercontent.com\\\\/rd-gg-dl\\\\/token=s1024-rj\\\"]",null,null,null,"generic"]]',
@@ -618,7 +888,58 @@ test('createGeminiDownloadRpcFetchHook should fallback to parsing asset ids from
 
   const hook = createGeminiDownloadRpcFetchHook({
     originalFetch,
-    getIntentMetadata: () => null,
+    provideActionContext: () => ({
+      action: 'download',
+      sessionKey: 'draft:rc_provided_rpc_context',
+      assetIds: {
+        responseId: 'r_provided_rpc_context',
+        draftId: 'rc_provided_rpc_context',
+        conversationId: 'c_provided_rpc_context'
+      }
+    }),
+    getActionContext: () => ({
+      action: 'download',
+      sessionKey: 'draft:rc_wrong_rpc_action_context',
+      assetIds: {
+        responseId: 'r_wrong_rpc_action_context',
+        draftId: 'rc_wrong_rpc_action_context',
+        conversationId: 'c_wrong_rpc_action_context'
+      }
+    }),
+    onOriginalAssetDiscovered: (payload) => {
+      seen.push(payload);
+    }
+  });
+
+  await hook('https://gemini.google.com/_/BardChatUi/data/batchexecute?rpcids=c8o8Fe&rt=c');
+
+  assert.deepEqual(seen, [{
+    rpcUrl: 'https://gemini.google.com/_/BardChatUi/data/batchexecute?rpcids=c8o8Fe&rt=c',
+    discoveredUrl: 'https://lh3.googleusercontent.com/rd-gg-dl/token=s0-rj',
+    actionContext: {
+      action: 'download',
+      sessionKey: 'draft:rc_provided_rpc_context',
+      assetIds: {
+        responseId: 'r_provided_rpc_context',
+        draftId: 'rc_provided_rpc_context',
+        conversationId: 'c_provided_rpc_context'
+      }
+    }
+  }]);
+});
+
+test('createGeminiDownloadRpcFetchHook should fallback to parsing asset ids from rpc request body when action context is missing', async () => {
+  const seen = [];
+  const originalFetch = async () => new Response(
+    ')]}\'\n123\n[["wrb.fr","c8o8Fe","[null,\\\"https:\\\\/\\\\/lh3.googleusercontent.com\\\\/rd-gg-dl\\\\/token=s1024-rj\\\"]",null,null,null,"generic"]]',
+    {
+      status: 200,
+      headers: { 'content-type': 'text/plain; charset=UTF-8' }
+    }
+  );
+
+  const hook = createGeminiDownloadRpcFetchHook({
+    originalFetch,
     onOriginalAssetDiscovered: (payload) => {
       seen.push(payload);
     }
@@ -632,7 +953,7 @@ test('createGeminiDownloadRpcFetchHook should fallback to parsing asset ids from
   assert.deepEqual(seen, [{
     rpcUrl: 'https://gemini.google.com/_/BardChatUi/data/batchexecute?rpcids=c8o8Fe&rt=c',
     discoveredUrl: 'https://lh3.googleusercontent.com/rd-gg-dl/token=s0-rj',
-    intentMetadata: {
+    actionContext: {
       assetIds: {
         responseId: 'r_d7ef418292ede05c',
         draftId: 'rc_2315ec0b5621fce5',
@@ -654,7 +975,6 @@ test('createGeminiDownloadRpcFetchHook should inspect non-c8o8Fe Gemini batchexe
 
   const hook = createGeminiDownloadRpcFetchHook({
     originalFetch,
-    getIntentMetadata: () => null,
     onOriginalAssetDiscovered: (payload) => {
       seen.push(payload);
     }
@@ -668,7 +988,7 @@ test('createGeminiDownloadRpcFetchHook should inspect non-c8o8Fe Gemini batchexe
   assert.deepEqual(seen, [{
     rpcUrl: 'https://gemini.google.com/_/BardChatUi/data/batchexecute?rpcids=ESY5D&rt=c',
     discoveredUrl: 'https://lh3.googleusercontent.com/gg-dl/token=s0-rj',
-    intentMetadata: {
+    actionContext: {
       assetIds: {
         responseId: 'r_auto1234567890ab',
         draftId: 'rc_auto1234567890ab',
@@ -690,7 +1010,7 @@ test('createGeminiDownloadRpcFetchHook should use response-derived asset ids for
 
   const hook = createGeminiDownloadRpcFetchHook({
     originalFetch,
-    getIntentMetadata: () => ({
+    getActionContext: () => ({
       assetIds: {
         conversationId: 'c_cdec91057e5fdcaf'
       }
@@ -708,7 +1028,7 @@ test('createGeminiDownloadRpcFetchHook should use response-derived asset ids for
   assert.deepEqual(seen, [{
     rpcUrl: 'https://gemini.google.com/_/BardChatUi/data/batchexecute?rpcids=hNvQHb&rt=c',
     discoveredUrl: 'https://lh3.googleusercontent.com/gg/AMW1TPruenvvhqGkK0ivNZat8rOQAWX2D9MYOb3rnxDwPU2y0V9oAp2bsFbJaGpRuuRsL19W2GwrpLRLqs5NydfTKFgw1rS01x9Kw8LtVbLdozlk8xgDCA2JiQ2Zs-12nq3o1OoxCKkT2LDl0lstjozOVQLHVtPA3kTduYB8-vwLSw3mWY0EkGE6RaL5_-8nRGZKXMmfpfjKRwLeFBv129SAVZKrV_cd9vypDV_Kqf7RZv4cvvuS8iOdfgEVvBHfoPQ268hode9yEG4uafOs_cCKU_vrcI2Bv06Yu3zTjLn1YxHVbUzXbKKsywKxtNeiCvlpvoxgeIlF8x_GgMAWinNf46vQ=s0',
-    intentMetadata: {
+    actionContext: {
       assetIds: {
         responseId: 'r_d7ef418292ede05c',
         draftId: 'rc_2315ec0b5621fce5',
@@ -769,7 +1089,7 @@ test('installGeminiDownloadRpcXmlHttpRequestHook should inspect Gemini batchexec
   };
 
   installGeminiDownloadRpcXmlHttpRequestHook(targetWindow, {
-    getIntentMetadata: () => ({
+    getActionContext: () => ({
       assetIds: {
         conversationId: 'c_cdec91057e5fdcaf'
       }
@@ -792,7 +1112,7 @@ test('installGeminiDownloadRpcXmlHttpRequestHook should inspect Gemini batchexec
   assert.deepEqual(seen, [{
     rpcUrl: 'https://gemini.google.com/_/BardChatUi/data/batchexecute?rpcids=hNvQHb&rt=c',
     discoveredUrl: 'https://lh3.googleusercontent.com/gg/AMW1TPruenvvhqGkK0ivNZat8rOQAWX2D9MYOb3rnxDwPU2y0V9oAp2bsFbJaGpRuuRsL19W2GwrpLRLqs5NydfTKFgw1rS01x9Kw8LtVbLdozlk8xgDCA2JiQ2Zs-12nq3o1OoxCKkT2LDl0lstjozOVQLHVtPA3kTduYB8-vwLSw3mWY0EkGE6RaL5_-8nRGZKXMmfpfjKRwLeFBv129SAVZKrV_cd9vypDV_Kqf7RZv4cvvuS8iOdfgEVvBHfoPQ268hode9yEG4uafOs_cCKU_vrcI2Bv06Yu3zTjLn1YxHVbUzXbKKsywKxtNeiCvlpvoxgeIlF8x_GgMAWinNf46vQ=s0',
-    intentMetadata: {
+    actionContext: {
       assetIds: {
         responseId: 'r_d7ef418292ede05c',
         draftId: 'rc_2315ec0b5621fce5',
@@ -802,7 +1122,7 @@ test('installGeminiDownloadRpcXmlHttpRequestHook should inspect Gemini batchexec
   }]);
 });
 
-test('createGeminiDownloadFetchHook should forward recent intent metadata and notify discovered original assets', async () => {
+test('createGeminiDownloadFetchHook should forward recent action context and notify discovered original assets', async () => {
   let notified = null;
   let seenContext = null;
   const originalFetch = async () => new Response(new Blob(['original'], { type: 'image/png' }), {
@@ -814,11 +1134,20 @@ test('createGeminiDownloadFetchHook should forward recent intent metadata and no
     originalFetch,
     isTargetUrl: () => true,
     normalizeUrl: () => 'https://lh3.googleusercontent.com/rd-gg-dl/token=s0',
-    getIntentMetadata: () => ({
+    getActionContext: () => ({
+      action: 'download',
+      sessionKey: 'draft:rc_d7ef418292ede05c',
       assetIds: {
         responseId: 'r_d7ef418292ede05c',
         draftId: 'rc_2315ec0b5621fce5',
         conversationId: 'c_cdec91057e5fdcaf'
+      },
+      resource: {
+        kind: 'processed',
+        url: 'blob:https://gemini.google.com/download-processed',
+        mimeType: 'image/png',
+        processedMeta: null,
+        source: 'page-fetch'
       }
     }),
     onOriginalAssetDiscovered: async (context) => {
@@ -833,13 +1162,127 @@ test('createGeminiDownloadFetchHook should forward recent intent metadata and no
   const response = await hook('https://lh3.googleusercontent.com/rd-gg-dl/token=s1024');
 
   assert.equal(await response.text(), 'processed');
-  assert.deepEqual(seenContext.intentMetadata, {
+  assert.deepEqual(seenContext.actionContext, {
+    action: 'download',
+    sessionKey: 'draft:rc_d7ef418292ede05c',
     assetIds: {
       responseId: 'r_d7ef418292ede05c',
       draftId: 'rc_2315ec0b5621fce5',
       conversationId: 'c_cdec91057e5fdcaf'
+    },
+    resource: {
+      kind: 'processed',
+      url: 'blob:https://gemini.google.com/download-processed',
+      mimeType: 'image/png',
+      processedMeta: null,
+      source: 'page-fetch'
     }
   });
-  assert.deepEqual(notified.intentMetadata, seenContext.intentMetadata);
+  assert.equal('intentMetadata' in seenContext, false);
+  assert.deepEqual(notified.actionContext, seenContext.actionContext);
   assert.equal(notified.normalizedUrl, 'https://lh3.googleusercontent.com/rd-gg-dl/token=s0');
+});
+
+test('createGeminiDownloadFetchHook should reuse an existing full processed session blob without refetching or reprocessing', async () => {
+  let fetchCalls = 0;
+  let processCalls = 0;
+  const processedBlob = new Blob(['session-full-processed'], { type: 'image/png' });
+  const originalFetch = async () => {
+    fetchCalls += 1;
+    return new Response(new Blob(['original'], { type: 'image/png' }), {
+      status: 200,
+      headers: { 'content-type': 'image/png' }
+    });
+  };
+
+  const hook = createGeminiDownloadFetchHook({
+    originalFetch,
+    isTargetUrl: () => true,
+    normalizeUrl: () => 'https://lh3.googleusercontent.com/rd-gg-dl/token=s0',
+    getActionContext: () => ({
+      action: 'download',
+      sessionKey: 'draft:rc_reuse_download',
+      assetIds: {
+        responseId: 'r_reuse_download',
+        draftId: 'rc_reuse_download',
+        conversationId: 'c_reuse_download'
+      },
+      resource: {
+        kind: 'processed',
+        url: 'blob:https://gemini.google.com/reuse-download',
+        blob: processedBlob,
+        mimeType: 'image/png',
+        processedMeta: null,
+        source: 'original-download',
+        slot: 'full'
+      }
+    }),
+    processBlob: async () => {
+      processCalls += 1;
+      return new Blob(['processed'], { type: 'image/png' });
+    }
+  });
+
+  const response = await hook('https://lh3.googleusercontent.com/rd-gg-dl/token=s1024');
+
+  assert.equal(await response.text(), 'session-full-processed');
+  assert.equal(response.headers.get('content-type'), 'image/png');
+  assert.equal(fetchCalls, 0);
+  assert.equal(processCalls, 0);
+});
+
+test('createGeminiDownloadFetchHook should prefer provideActionContext over getter aliases', async () => {
+  let fetchCalls = 0;
+  let processCalls = 0;
+  const processedBlob = new Blob(['provided-action-context-full-processed'], { type: 'image/png' });
+  const originalFetch = async () => {
+    fetchCalls += 1;
+    return new Response(new Blob(['original'], { type: 'image/png' }), {
+      status: 200,
+      headers: { 'content-type': 'image/png' }
+    });
+  };
+
+  const hook = createGeminiDownloadFetchHook({
+    originalFetch,
+    isTargetUrl: () => true,
+    normalizeUrl: () => 'https://lh3.googleusercontent.com/rd-gg-dl/token=s0',
+    provideActionContext: () => ({
+      action: 'download',
+      sessionKey: 'draft:rc_provided_download_context',
+      assetIds: {
+        responseId: 'r_provided_download_context',
+        draftId: 'rc_provided_download_context',
+        conversationId: 'c_provided_download_context'
+      },
+      resource: {
+        kind: 'processed',
+        url: 'blob:https://gemini.google.com/provided-download-context',
+        blob: processedBlob,
+        mimeType: 'image/png',
+        processedMeta: null,
+        source: 'original-download',
+        slot: 'full'
+      }
+    }),
+    getActionContext: () => ({
+      action: 'download',
+      sessionKey: 'draft:rc_wrong_download_action_context',
+      assetIds: {
+        responseId: 'r_wrong_download_action_context',
+        draftId: 'rc_wrong_download_action_context',
+        conversationId: 'c_wrong_download_action_context'
+      }
+    }),
+    processBlob: async () => {
+      processCalls += 1;
+      return new Blob(['processed'], { type: 'image/png' });
+    }
+  });
+
+  const response = await hook('https://lh3.googleusercontent.com/rd-gg-dl/token=s1024');
+
+  assert.equal(await response.text(), 'provided-action-context-full-processed');
+  assert.equal(fetchCalls, 0);
+  assert.equal(processCalls, 0);
 });

@@ -1,3 +1,7 @@
+import { createActionContextProvider } from '../shared/actionContextCompat.js';
+import { resolveImageSessionContext } from '../shared/imageSessionContext.js';
+import { getDefaultImageSessionStore } from '../shared/imageSessionStore.js';
+
 function isImageMimeType(type) {
   return typeof type === 'string' && /^image\//i.test(type);
 }
@@ -88,27 +92,40 @@ async function buildClipboardReplacementItems(items, replacementBlob, ClipboardI
 }
 
 async function resolveProcessedClipboardBlob({
-  intentMetadata,
+  actionContext = null,
   resolveImageElement,
+  imageSessionStore = getDefaultImageSessionStore(),
   fetchBlobDirect,
   resolveBlobViaImageElement
 }) {
-  let imageElement = intentMetadata?.imageElement || null;
-  if (
-    (!imageElement?.dataset?.gwrWatermarkObjectUrl)
-    && typeof resolveImageElement === 'function'
-  ) {
-    imageElement = resolveImageElement(intentMetadata) || imageElement;
+  const sessionContext = resolveImageSessionContext({
+    action: 'clipboard',
+    actionContext,
+    resolveImageElement,
+    imageSessionStore
+  });
+  const imageElement = sessionContext?.imageElement || actionContext?.imageElement || null;
+  const sessionBlob = sessionContext?.resource?.kind === 'processed'
+    && sessionContext.resource.blob instanceof Blob
+    ? sessionContext.resource.blob
+    : null;
+  if (sessionBlob) {
+    return sessionBlob;
   }
-
-  const objectUrl = typeof imageElement?.dataset?.gwrWatermarkObjectUrl === 'string'
-    ? imageElement.dataset.gwrWatermarkObjectUrl.trim()
+  const resourceUrl = sessionContext?.resource?.kind === 'processed'
+    && typeof sessionContext.resource.url === 'string'
+    ? sessionContext.resource.url.trim()
     : '';
+  const objectUrl = resourceUrl || (
+    typeof imageElement?.dataset?.gwrWatermarkObjectUrl === 'string'
+      ? imageElement.dataset.gwrWatermarkObjectUrl.trim()
+      : ''
+  );
   if (!objectUrl) {
     return null;
   }
 
-  if (isBlobUrl(objectUrl) && typeof resolveBlobViaImageElement === 'function') {
+  if (imageElement && isBlobUrl(objectUrl) && typeof resolveBlobViaImageElement === 'function') {
     try {
       return await resolveBlobViaImageElement({
         objectUrl,
@@ -129,8 +146,10 @@ async function resolveProcessedClipboardBlob({
 }
 
 export function installGeminiClipboardImageHook(targetWindow, {
-  getIntentMetadata = () => null,
+  provideActionContext = null,
+  getActionContext = () => null,
   resolveImageElement = null,
+  imageSessionStore = getDefaultImageSessionStore(),
   fetchBlobDirect = async (url) => {
     const response = await fetch(url);
     return response.blob();
@@ -147,15 +166,17 @@ export function installGeminiClipboardImageHook(targetWindow, {
 
   const originalWrite = clipboard.write.bind(clipboard);
   const ClipboardItemClass = targetWindow?.ClipboardItem || globalThis.ClipboardItem;
+  const resolveActionContextProvider = typeof provideActionContext === 'function'
+    ? provideActionContext
+    : createActionContextProvider({ getActionContext });
 
   const hookedWrite = async function gwrClipboardWriteHook(items) {
     try {
-      const intentMetadata = typeof getIntentMetadata === 'function'
-        ? getIntentMetadata()
-        : null;
+      const actionContext = resolveActionContextProvider();
       const processedBlob = await resolveProcessedClipboardBlob({
-        intentMetadata,
+        actionContext,
         resolveImageElement,
+        imageSessionStore,
         fetchBlobDirect,
         resolveBlobViaImageElement
       });

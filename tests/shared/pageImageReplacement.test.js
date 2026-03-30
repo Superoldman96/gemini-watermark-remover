@@ -30,6 +30,7 @@ import {
   showProcessingOverlay,
   waitForRenderableImageSize
 } from '../../src/shared/pageImageReplacement.js';
+import { createImageSessionStore } from '../../src/shared/imageSessionStore.js';
 
 function createMockElement(tagName = 'div') {
   return {
@@ -1126,15 +1127,15 @@ test('preparePageImageProcessing should reset previous processed state and retur
       }
     });
 
-    assert.deepEqual(result, {
-      sourceUrl: 'https://lh3.googleusercontent.com/gg/example-token=s1024-rj',
-      normalizedUrl: 'https://lh3.googleusercontent.com/gg/example-token=s0-rj',
-      isPreviewSource: true,
-      assetIds: {
-        responseId: 'r_d7ef418292ede05c',
-        draftId: 'rc_2315ec0b5621fce5',
-        conversationId: 'c_cdec91057e5fdcaf'
-      }
+    assert.equal(result?.sourceUrl, 'https://lh3.googleusercontent.com/gg/example-token=s1024-rj');
+    assert.equal(result?.normalizedUrl, 'https://lh3.googleusercontent.com/gg/example-token=s0-rj');
+    assert.equal(result?.isPreviewSource, true);
+    assert.equal(result?.sessionKey, 'draft:rc_2315ec0b5621fce5');
+    assert.equal(result?.surfaceType, 'preview');
+    assert.deepEqual(result?.assetIds, {
+      responseId: 'r_d7ef418292ede05c',
+      draftId: 'rc_2315ec0b5621fce5',
+      conversationId: 'c_cdec91057e5fdcaf'
     });
     assert.equal(processing.has(image), true);
     assert.equal(image.dataset.gwrStableSource, 'https://lh3.googleusercontent.com/gg/example-token=s1024-rj');
@@ -1227,6 +1228,103 @@ test('applyPageImageProcessingResult should apply ready state and emit success p
     assert.equal(logs[0][1].strategy, 'preview-candidate');
     assert.equal(logs[0][1].blobType, 'image/png');
     assert.equal(logs[0][1].blobSize, processedBlob.size);
+  });
+});
+
+test('applyPageImageProcessingResult should mirror processed result into the image session store', async () => {
+  await withPageImageTestEnv(async ({ MockHTMLImageElement }) => {
+    const imageSessionStore = createImageSessionStore();
+    const image = new MockHTMLImageElement();
+    image.dataset = {
+      gwrResponseId: 'r_store_ready',
+      gwrDraftId: 'rc_store_ready',
+      gwrConversationId: 'c_store_ready'
+    };
+    image.style = {};
+    image.src = 'blob:https://gemini.google.com/store-ready';
+    image.currentSrc = image.src;
+    image.naturalWidth = 1024;
+    image.naturalHeight = 559;
+    image.width = 1024;
+    image.height = 559;
+    image.clientWidth = 456;
+    image.clientHeight = 249;
+    image.parentElement = createMockElement('div');
+    image.closest = () => null;
+
+    const processedBlob = new Blob(['processed-store'], { type: 'image/png' });
+
+    applyPageImageProcessingResult({
+      imageElement: image,
+      sourceUrl: 'blob:https://gemini.google.com/store-ready',
+      normalizedUrl: 'blob:https://gemini.google.com/store-ready',
+      isPreviewSource: true,
+      imageSessionStore,
+      sourceResult: {
+        skipped: false,
+        processedBlob,
+        selectedStrategy: 'page-fetch',
+        processedMeta: {
+          applied: true
+        }
+      },
+      logger: createSilentLogger()
+    });
+
+      const snapshot = imageSessionStore.getSnapshot('draft:rc_store_ready');
+      assert.equal(snapshot?.derived?.processedBlobUrl, `blob:mock:${processedBlob.size}`);
+      assert.equal(snapshot?.derived?.processedBlobType, 'image/png');
+      assert.equal(snapshot?.derived?.processedFrom, 'page-fetch');
+      assert.equal(snapshot?.derived?.processedSlots?.preview?.objectUrl, `blob:mock:${processedBlob.size}`);
+      assert.equal(snapshot?.derived?.processedSlots?.full?.objectUrl, '');
+      assert.equal(snapshot?.state?.preview, 'ready');
+    });
+  });
+
+test('applyPageImageProcessingResult should store non-preview processed results in the full slot', async () => {
+  await withPageImageTestEnv(async ({ MockHTMLImageElement }) => {
+    const imageSessionStore = createImageSessionStore();
+    const image = new MockHTMLImageElement();
+    image.dataset = {
+      gwrResponseId: 'r_store_full',
+      gwrDraftId: 'rc_store_full',
+      gwrConversationId: 'c_store_full'
+    };
+    image.style = {};
+    image.src = 'https://lh3.googleusercontent.com/rd-gg/store-full=s0-rp';
+    image.currentSrc = image.src;
+    image.naturalWidth = 1408;
+    image.naturalHeight = 768;
+    image.width = 1408;
+    image.height = 768;
+    image.clientWidth = 704;
+    image.clientHeight = 384;
+    image.parentElement = createMockElement('div');
+    image.closest = () => null;
+
+    const processedBlob = new Blob(['processed-full'], { type: 'image/png' });
+
+    applyPageImageProcessingResult({
+      imageElement: image,
+      sourceUrl: 'https://lh3.googleusercontent.com/rd-gg/store-full=s0-rp',
+      normalizedUrl: 'https://lh3.googleusercontent.com/rd-gg/store-full=s0-rp',
+      isPreviewSource: false,
+      imageSessionStore,
+      sourceResult: {
+        skipped: false,
+        processedBlob,
+        selectedStrategy: 'original-download',
+        processedMeta: {
+          applied: true
+        }
+      },
+      logger: createSilentLogger()
+    });
+
+    const snapshot = imageSessionStore.getSnapshot('draft:rc_store_full');
+    assert.equal(snapshot?.derived?.processedSlots?.full?.objectUrl, `blob:mock:${processedBlob.size}`);
+    assert.equal(snapshot?.derived?.processedSlots?.full?.processedFrom, 'original-download');
+    assert.equal(snapshot?.derived?.processedSlots?.preview?.objectUrl, '');
   });
 });
 
@@ -1359,6 +1457,30 @@ test('bindOriginalAssetUrlToImages should attach original asset url to matching 
   });
 });
 
+test('bindOriginalAssetUrlToImages should mirror original source into the image session store', async () => {
+  await withPageImageTestEnv(async () => {
+    const imageSessionStore = createImageSessionStore();
+
+    bindOriginalAssetUrlToImages({
+      root: {
+        querySelectorAll() {
+          return [];
+        }
+      },
+      assetIds: {
+        responseId: 'r_store_source',
+        draftId: 'rc_store_source',
+        conversationId: 'c_store_source'
+      },
+      sourceUrl: 'https://lh3.googleusercontent.com/rd-gg/store-source=s0-rp',
+      imageSessionStore
+    });
+
+    const snapshot = imageSessionStore.getSnapshot('draft:rc_store_source');
+    assert.equal(snapshot?.sources?.originalUrl, 'https://lh3.googleusercontent.com/rd-gg/store-source=s0-rp');
+  });
+});
+
 test('preparePageImageProcessing should reuse remembered original asset urls when RPC binding arrives before the image node', async () => {
   await withPageImageTestEnv(async ({ MockHTMLImageElement }) => {
     bindOriginalAssetUrlToImages({
@@ -1393,6 +1515,40 @@ test('preparePageImageProcessing should reuse remembered original asset urls whe
     assert.equal(result?.sourceUrl, 'https://lh3.googleusercontent.com/gg/example-late-bind=s0-rj');
     assert.equal(image.dataset.gwrSourceUrl, 'https://lh3.googleusercontent.com/gg/example-late-bind=s0-rj');
     assert.equal(image.dataset.gwrPageImageSource, 'https://lh3.googleusercontent.com/gg/example-late-bind=s0-rj');
+  });
+});
+
+test('preparePageImageProcessing should attach processing image state to the image session store', async () => {
+  await withPageImageTestEnv(async ({ MockHTMLImageElement }) => {
+    const imageSessionStore = createImageSessionStore();
+    const image = new MockHTMLImageElement();
+    image.dataset = {
+      gwrResponseId: 'r_store_processing',
+      gwrDraftId: 'rc_store_processing',
+      gwrConversationId: 'c_store_processing'
+    };
+    image.style = {};
+    image.src = 'blob:https://gemini.google.com/store-processing';
+    image.currentSrc = image.src;
+    image.naturalWidth = 1024;
+    image.naturalHeight = 559;
+    image.width = 1024;
+    image.height = 559;
+    image.clientWidth = 456;
+    image.clientHeight = 249;
+    image.parentElement = createMockElement('div');
+    image.closest = () => null;
+
+    const result = preparePageImageProcessing(image, {
+      imageSessionStore,
+      isProcessableImage: () => true
+    });
+
+    assert.equal(result?.sessionKey, 'draft:rc_store_processing');
+    const snapshot = imageSessionStore.getSnapshot('draft:rc_store_processing');
+    assert.equal(snapshot?.state?.preview, 'processing');
+    assert.equal(snapshot?.sources?.currentBlobUrl, 'blob:https://gemini.google.com/store-processing');
+    assert.equal(snapshot?.surfaces?.previewCount, 1);
   });
 });
 

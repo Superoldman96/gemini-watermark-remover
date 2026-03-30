@@ -5,6 +5,7 @@ import {
   normalizeGoogleusercontentImageUrl
 } from '../userscript/urlUtils.js';
 import { normalizeErrorMessage } from './errorUtils.js';
+import { getDefaultImageSessionStore } from './imageSessionStore.js';
 import { acquireOriginalBlob } from './originalBlob.js';
 import {
   extractGeminiImageAssetIds,
@@ -79,6 +80,41 @@ function getComparableImageSize(imageElement) {
     return null;
   }
   return { width, height };
+}
+
+function readAssetIdsFromImageDataset(imageElement) {
+  if (!imageElement?.dataset) {
+    return null;
+  }
+
+  const responseId = typeof imageElement.dataset[PAGE_IMAGE_RESPONSE_ID_KEY] === 'string'
+    ? imageElement.dataset[PAGE_IMAGE_RESPONSE_ID_KEY].trim()
+    : '';
+  const draftId = typeof imageElement.dataset[PAGE_IMAGE_DRAFT_ID_KEY] === 'string'
+    ? imageElement.dataset[PAGE_IMAGE_DRAFT_ID_KEY].trim()
+    : '';
+  const conversationId = typeof imageElement.dataset[PAGE_IMAGE_CONVERSATION_ID_KEY] === 'string'
+    ? imageElement.dataset[PAGE_IMAGE_CONVERSATION_ID_KEY].trim()
+    : '';
+
+  if (!responseId && !draftId && !conversationId) {
+    return null;
+  }
+
+  return {
+    responseId: responseId || null,
+    draftId: draftId || null,
+    conversationId: conversationId || null
+  };
+}
+
+function resolveImageSessionSurfaceType(imageElement) {
+  if (typeof imageElement?.closest === 'function') {
+    if (imageElement.closest('expansion-dialog,[role="dialog"],.image-expansion-dialog-panel,.cdk-overlay-pane')) {
+      return 'fullscreen';
+    }
+  }
+  return 'preview';
 }
 
 function getAspectRatioDelta(left, right) {
@@ -237,7 +273,9 @@ function getResponseAssetRegistryKey(assetIds = null) {
   return responseId && conversationId ? `response:${responseId}|conversation:${conversationId}` : '';
 }
 
-function rememberOriginalAssetUrlBinding(assetIds = null, sourceUrl = '') {
+function rememberOriginalAssetUrlBinding(assetIds = null, sourceUrl = '', {
+  imageSessionStore = getDefaultImageSessionStore()
+} = {}) {
   const normalizedSourceUrl = typeof sourceUrl === 'string' ? sourceUrl.trim() : '';
   if (!assetIds || !normalizedSourceUrl) {
     return;
@@ -250,6 +288,11 @@ function rememberOriginalAssetUrlBinding(assetIds = null, sourceUrl = '') {
   }
   if (responseKey) {
     originalAssetUrlRegistry.set(responseKey, normalizedSourceUrl);
+  }
+
+  const sessionKey = imageSessionStore?.getOrCreateByAssetIds?.(assetIds) || '';
+  if (sessionKey) {
+    imageSessionStore.updateOriginalSource?.(sessionKey, normalizedSourceUrl);
   }
 }
 
@@ -1389,11 +1432,38 @@ function applySkippedImageState(imageElement) {
   hideProcessingOverlay(imageElement, { removeImmediately: true });
 }
 
-function applyReadyImageState(imageElement, processedBlob) {
+function applyReadyImageState(imageElement, processedBlob, {
+  imageSessionStore = getDefaultImageSessionStore(),
+  processedMeta = null,
+  processedFrom = '',
+  processedSlot = 'preview'
+} = {}) {
   const objectUrl = URL.createObjectURL(processedBlob);
   revokeTrackedObjectUrl(imageElement);
   imageElement.dataset[PAGE_IMAGE_OBJECT_URL_KEY] = objectUrl;
   imageElement.dataset[PAGE_IMAGE_STATE_KEY] = 'ready';
+  const assetIds = readAssetIdsFromImageDataset(imageElement) || extractGeminiImageAssetIds(imageElement);
+  const sessionKey = imageSessionStore?.getOrCreateByAssetIds?.(assetIds) || '';
+  if (sessionKey) {
+    imageSessionStore.attachElement?.(
+      sessionKey,
+      resolveImageSessionSurfaceType(imageElement),
+      imageElement
+    );
+    imageSessionStore.updateProcessedResult?.(sessionKey, {
+      slot: processedSlot,
+      objectUrl,
+      blob: processedBlob || null,
+      blobType: processedBlob?.type || '',
+      processedMeta,
+      processedFrom
+    });
+    imageSessionStore.markProcessing?.(
+      sessionKey,
+      resolveImageSessionSurfaceType(imageElement),
+      'ready'
+    );
+  }
   const { container, referenceNode } = resolvePreviewOverlayMount(imageElement);
   if (container && typeof container.appendChild === 'function') {
     const overlay = document.createElement('div');
@@ -1447,6 +1517,7 @@ export function preparePageImageProcessing(imageElement, {
   isProcessableImage = isProcessableGeminiImageElement,
   resolveSourceUrl = resolveCandidateImageUrl,
   resolveAssetIds = extractGeminiImageAssetIds,
+  imageSessionStore = getDefaultImageSessionStore(),
   hideProcessingOverlayImpl = hideProcessingOverlay,
   revokeTrackedObjectUrlImpl = revokeTrackedObjectUrl,
   showProcessingOverlayImpl = showProcessingOverlay
@@ -1493,6 +1564,18 @@ export function preparePageImageProcessing(imageElement, {
     processing.add(imageElement);
   }
 
+  const surfaceType = resolveImageSessionSurfaceType(imageElement);
+  const sessionKey = imageSessionStore?.getOrCreateByAssetIds?.(assetIds) || '';
+  const isPreviewSource = shouldTreatPageImageSourceAsPreview(imageElement, sourceUrl);
+  if (sessionKey) {
+    imageSessionStore.attachElement?.(sessionKey, surfaceType, imageElement);
+    imageSessionStore.updateSourceSnapshot?.(sessionKey, {
+      sourceUrl,
+      isPreviewSource
+    });
+    imageSessionStore.markProcessing?.(sessionKey, surfaceType, 'processing');
+  }
+
   dataset.gwrStableSource = sourceUrl;
   dataset[PAGE_IMAGE_SOURCE_KEY] = sourceUrl;
   dataset[PAGE_IMAGE_STATE_KEY] = 'processing';
@@ -1514,9 +1597,11 @@ export function preparePageImageProcessing(imageElement, {
   showProcessingOverlayImpl(imageElement);
 
   return {
+    sessionKey,
+    surfaceType,
     sourceUrl,
     normalizedUrl: normalizeGoogleusercontentImageUrl(sourceUrl),
-    isPreviewSource: shouldTreatPageImageSourceAsPreview(imageElement, sourceUrl),
+    isPreviewSource,
     assetIds: {
       responseId: assetIds?.responseId || null,
       draftId: assetIds?.draftId || null,
@@ -1565,11 +1650,21 @@ export function applyPageImageProcessingResult({
   normalizedUrl,
   isPreviewSource = false,
   sourceResult,
+  imageSessionStore = getDefaultImageSessionStore(),
   logger = console,
   onLog = null
 } = {}) {
   if (sourceResult?.skipped) {
     applySkippedImageState(imageElement);
+    const assetIds = readAssetIdsFromImageDataset(imageElement) || extractGeminiImageAssetIds(imageElement);
+    const sessionKey = imageSessionStore?.getOrCreateByAssetIds?.(assetIds) || '';
+    if (sessionKey) {
+      imageSessionStore.markProcessing?.(
+        sessionKey,
+        resolveImageSessionSurfaceType(imageElement),
+        'idle'
+      );
+    }
     emitPageImageProcessEvent({
       logger,
       onLog,
@@ -1592,7 +1687,12 @@ export function applyPageImageProcessingResult({
   const candidateDiagnosticsSummary = sourceResult?.candidateDiagnosticsSummary || '';
   const captureTiming = sourceResult?.captureTiming || null;
 
-  applyReadyImageState(imageElement, processedBlob);
+  applyReadyImageState(imageElement, processedBlob, {
+    imageSessionStore,
+    processedMeta: sourceResult?.processedMeta || null,
+    processedFrom: selectedStrategy || (isPreviewSource ? 'preview-candidate' : 'default'),
+    processedSlot: isPreviewSource ? 'preview' : 'full'
+  });
 
   emitPageImageProcessEvent({
     logger,
@@ -1617,9 +1717,20 @@ export function handlePageImageProcessingFailure({
   sourceUrl,
   normalizedUrl,
   error,
+  imageSessionStore = getDefaultImageSessionStore(),
   logger = console,
   onLog = null
 } = {}) {
+  const assetIds = readAssetIdsFromImageDataset(imageElement) || extractGeminiImageAssetIds(imageElement);
+  const sessionKey = imageSessionStore?.getOrCreateByAssetIds?.(assetIds) || '';
+  if (sessionKey) {
+    imageSessionStore.markProcessing?.(
+      sessionKey,
+      resolveImageSessionSurfaceType(imageElement),
+      'failed',
+      normalizeErrorMessage(error)
+    );
+  }
   emitPageImageProcessEvent({
     logger,
     onLog,
@@ -1661,13 +1772,16 @@ function collectBindableImages(root) {
 export function bindOriginalAssetUrlToImages({
   root = document,
   assetIds = null,
-  sourceUrl = ''
+  sourceUrl = '',
+  imageSessionStore = getDefaultImageSessionStore()
 } = {}) {
   const normalizedSourceUrl = typeof sourceUrl === 'string' ? sourceUrl.trim() : '';
   if (!assetIds || !normalizedSourceUrl) {
     return 0;
   }
-  rememberOriginalAssetUrlBinding(assetIds, normalizedSourceUrl);
+  rememberOriginalAssetUrlBinding(assetIds, normalizedSourceUrl, {
+    imageSessionStore
+  });
   if (!root) {
     return 0;
   }
@@ -1724,6 +1838,7 @@ export function createPageImageReplacementController({
   logger = console,
   onLog = null,
   targetDocument = globalThis.document,
+  imageSessionStore = getDefaultImageSessionStore(),
   fetchPreviewBlob = fetchBlobViaPageBridge,
   processPageImageSourceImpl = processPageImageSource,
   processWatermarkBlobImpl = processWatermarkBlob,
@@ -1794,7 +1909,10 @@ export function createPageImageReplacementController({
     }
 
     cleanupRenderableWait(imageElement);
-    const context = preparePageImageProcessing(imageElement, { processing });
+    const context = preparePageImageProcessing(imageElement, {
+      processing,
+      imageSessionStore
+    });
     if (!context) return;
 
     const { sourceUrl, normalizedUrl, isPreviewSource, assetIds } = context;
@@ -1818,6 +1936,7 @@ export function createPageImageReplacementController({
 
       applyPageImageProcessingResult({
         imageElement,
+        imageSessionStore,
         logger,
         onLog,
         sourceUrl,
@@ -1828,6 +1947,7 @@ export function createPageImageReplacementController({
     } catch (error) {
       handlePageImageProcessingFailure({
         imageElement,
+        imageSessionStore,
         logger,
         onLog,
         sourceUrl,

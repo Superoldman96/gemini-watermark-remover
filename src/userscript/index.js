@@ -1,17 +1,17 @@
+import { resolveCompatibleActionContextFromPayload } from '../shared/actionContextCompat.js';
 import {
   bindOriginalAssetUrlToImages,
   installPageImageReplacement
 } from '../shared/pageImageReplacement.js';
-import {
-  extractGeminiImageAssetIds,
-  getGeminiImageQuerySelector
-} from '../shared/domAdapter.js';
+import { getDefaultImageSessionStore } from '../shared/imageSessionStore.js';
 import { installGeminiClipboardImageHook } from './clipboardHook.js';
+import { createGeminiActionContextResolver } from './actionContext.js';
 import {
   createGeminiDownloadIntentGate,
   createGeminiDownloadRpcFetchHook,
   installGeminiDownloadRpcXmlHttpRequestHook,
-  installGeminiDownloadHook
+  installGeminiDownloadHook,
+  resolveGeminiActionKind
 } from './downloadHook.js';
 import { createUserscriptBlobFetcher } from './crossOriginFetch.js';
 import {
@@ -45,121 +45,6 @@ function shouldSkipFrame(targetWindow) {
   }
 }
 
-function assetIdsMatch(candidate = null, target = null) {
-  if (!candidate || !target) {
-    return false;
-  }
-
-  if (candidate.draftId && target.draftId) {
-    return candidate.draftId === target.draftId;
-  }
-
-  return Boolean(
-    candidate.responseId
-      && target.responseId
-      && candidate.responseId === target.responseId
-      && candidate.conversationId
-      && target.conversationId
-      && candidate.conversationId === target.conversationId
-  );
-}
-
-function findGeminiImageElementForAssetIds(root, assetIds) {
-  if (!root || !assetIds || typeof root.querySelectorAll !== 'function') {
-    return null;
-  }
-
-  let fallbackMatch = null;
-  for (const imageElement of root.querySelectorAll(getGeminiImageQuerySelector())) {
-    if (!assetIdsMatch(extractGeminiImageAssetIds(imageElement), assetIds)) {
-      continue;
-    }
-
-    if (imageElement?.dataset?.gwrWatermarkObjectUrl) {
-      return imageElement;
-    }
-
-    fallbackMatch ||= imageElement;
-  }
-
-  return fallbackMatch;
-}
-
-function collectCandidateImagesFromRoot(root) {
-  if (!root || typeof root !== 'object') {
-    return [];
-  }
-
-  const candidates = [];
-  if (typeof root.tagName === 'string' && root.tagName.toUpperCase() === 'IMG') {
-    candidates.push(root);
-  }
-  if (typeof root.querySelectorAll === 'function') {
-    candidates.push(...root.querySelectorAll('img'));
-  }
-  return candidates.filter(Boolean);
-}
-
-function findPreferredGeminiImageElement(root, assetIds) {
-  const candidates = collectCandidateImagesFromRoot(root);
-  if (candidates.length === 0) {
-    return null;
-  }
-
-  const matchingAssetCandidate = assetIds
-    ? candidates.find((imageElement) => assetIdsMatch(extractGeminiImageAssetIds(imageElement), assetIds))
-    : null;
-  const processedMatchingAssetCandidate = matchingAssetCandidate?.dataset?.gwrWatermarkObjectUrl
-    ? matchingAssetCandidate
-    : null;
-  if (processedMatchingAssetCandidate) {
-    return processedMatchingAssetCandidate;
-  }
-  if (matchingAssetCandidate) {
-    return matchingAssetCandidate;
-  }
-
-  const processedProcessableCandidate = candidates.find((imageElement) => (
-    typeof imageElement?.dataset?.gwrWatermarkObjectUrl === 'string'
-      && imageElement.dataset.gwrWatermarkObjectUrl.trim()
-  ));
-  if (processedProcessableCandidate) {
-    return processedProcessableCandidate;
-  }
-
-  return candidates[0] || null;
-}
-
-function findNearbyGeminiImageElement(targetWindow, target, assetIds) {
-  const buttonLike = typeof target?.closest === 'function'
-    ? target.closest('button,[role="button"]')
-    : null;
-  const globalAssetMatch = assetIds
-    ? findGeminiImageElementForAssetIds(targetWindow?.document || document, assetIds)
-    : null;
-  const candidateRoots = [
-    buttonLike?.closest?.('generated-image,.generated-image-container'),
-    buttonLike?.closest?.('single-image'),
-    buttonLike?.closest?.('expansion-dialog,[role="dialog"],.image-expansion-dialog-panel,.cdk-overlay-pane'),
-    buttonLike?.closest?.('[data-test-draft-id]')
-  ].filter(Boolean);
-
-  for (const root of candidateRoots) {
-    const imageElement = findPreferredGeminiImageElement(root, assetIds);
-    if (imageElement?.dataset?.gwrWatermarkObjectUrl) {
-      return imageElement;
-    }
-    if (globalAssetMatch?.dataset?.gwrWatermarkObjectUrl) {
-      return globalAssetMatch;
-    }
-    if (imageElement) {
-      return imageElement;
-    }
-  }
-
-  return globalAssetMatch;
-}
-
 (async function init() {
   try {
     const targetWindow = typeof unsafeWindow === 'object' && unsafeWindow
@@ -186,6 +71,11 @@ function findNearbyGeminiImageElement(targetWindow, target, assetIds) {
       env: globalThis,
       logger: console
     });
+    const imageSessionStore = getDefaultImageSessionStore();
+    const actionContextResolver = createGeminiActionContextResolver({
+      targetWindow,
+      imageSessionStore
+    });
     let pageProcessClient = null;
     const removeWatermarkFromBestAvailablePath = (blob, options = {}) => (
       pageProcessClient?.removeWatermarkFromBlob
@@ -193,52 +83,53 @@ function findNearbyGeminiImageElement(targetWindow, target, assetIds) {
         : processingRuntime.removeWatermarkFromBlob(blob, options)
     );
 
-    const handleOriginalAssetDiscovered = ({ normalizedUrl, discoveredUrl, intentMetadata }) => {
-      const sourceUrl = normalizedUrl || discoveredUrl || '';
-      const assetIds = intentMetadata?.assetIds;
+    const handleOriginalAssetDiscovered = (payload = {}) => {
+      const sourceUrl = payload.normalizedUrl || payload.discoveredUrl || '';
+      const resolvedActionContext = resolveCompatibleActionContextFromPayload(payload);
+      const assetIds = resolvedActionContext?.assetIds;
       if (!assetIds || !sourceUrl) return;
       bindOriginalAssetUrlToImages({
         root: targetWindow.document || document,
         assetIds,
-        sourceUrl
+        sourceUrl,
+        imageSessionStore
+      });
+    };
+    const handleRpcAssetDiscovered = (payload) => {
+      handleOriginalAssetDiscovered({
+        ...payload,
+        normalizedUrl: payload?.discoveredUrl || ''
       });
     };
     const downloadIntentGate = createGeminiDownloadIntentGate({
       targetWindow,
-      resolveMetadata: (target) => {
-        const imageElement = findNearbyGeminiImageElement(targetWindow, target, null);
-        const assetIds = extractGeminiImageAssetIds(target)
-          || extractGeminiImageAssetIds(imageElement);
+      resolveActionContext: (target) => {
+        const intentAction = resolveGeminiActionKind(target) || 'clipboard';
+        const sessionContext = actionContextResolver.resolveActionContext(target, {
+          action: intentAction
+        });
         return {
+          action: intentAction,
           target,
-          assetIds,
-          imageElement: imageElement || findNearbyGeminiImageElement(targetWindow, target, assetIds)
+          assetIds: sessionContext.assetIds,
+          sessionKey: sessionContext.sessionKey,
+          resource: sessionContext.resource,
+          imageElement: sessionContext.imageElement || actionContextResolver.resolveImageElement({
+            target,
+            assetIds: sessionContext.assetIds
+          })
         };
       }
     });
     const downloadRpcFetch = createGeminiDownloadRpcFetchHook({
       originalFetch: targetWindow.fetch.bind(targetWindow),
-      getIntentMetadata: () => downloadIntentGate.getRecentIntentMetadata(),
-      onOriginalAssetDiscovered: ({ rpcUrl, discoveredUrl, intentMetadata }) => {
-        handleOriginalAssetDiscovered({
-          rpcUrl,
-          discoveredUrl,
-          normalizedUrl: discoveredUrl,
-          intentMetadata
-        });
-      },
+      getActionContext: () => downloadIntentGate.getRecentActionContext(),
+      onOriginalAssetDiscovered: handleRpcAssetDiscovered,
       logger: console
     });
     installGeminiDownloadRpcXmlHttpRequestHook(targetWindow, {
-      getIntentMetadata: () => downloadIntentGate.getRecentIntentMetadata(),
-      onOriginalAssetDiscovered: ({ rpcUrl, discoveredUrl, intentMetadata }) => {
-        handleOriginalAssetDiscovered({
-          rpcUrl,
-          discoveredUrl,
-          normalizedUrl: discoveredUrl,
-          intentMetadata
-        });
-      },
+      getActionContext: () => downloadIntentGate.getRecentActionContext(),
+      onOriginalAssetDiscovered: handleRpcAssetDiscovered,
       logger: console
     });
     installGeminiDownloadHook(targetWindow, {
@@ -247,21 +138,13 @@ function findNearbyGeminiImageElement(targetWindow, target, assetIds) {
       isTargetUrl: isGeminiOriginalAssetUrl,
       normalizeUrl: normalizeGoogleusercontentImageUrl,
       processBlob: removeWatermarkFromBestAvailablePath,
-      onOriginalAssetDiscovered: ({ normalizedUrl, intentMetadata }) => {
-        handleOriginalAssetDiscovered({
-          normalizedUrl,
-          intentMetadata
-        });
-      },
+      onOriginalAssetDiscovered: handleOriginalAssetDiscovered,
       logger: console
     });
     const disposeClipboardHook = installGeminiClipboardImageHook(targetWindow, {
-      getIntentMetadata: () => downloadIntentGate.getRecentIntentMetadata(),
-      resolveImageElement: (intentMetadata) => findNearbyGeminiImageElement(
-        targetWindow,
-        intentMetadata?.target || null,
-        intentMetadata?.assetIds || null
-      ),
+      getActionContext: () => downloadIntentGate.getRecentActionContext(),
+      imageSessionStore: imageSessionStore,
+      resolveImageElement: (actionContext) => actionContextResolver.resolveImageElement(actionContext),
       logger: console
     });
     await requestGeminiConversationHistoryBindings({
@@ -290,6 +173,7 @@ function findNearbyGeminiImageElement(targetWindow, target, assetIds) {
     });
 
     const pageImageReplacementController = installPageImageReplacement({
+      imageSessionStore: imageSessionStore,
       logger: console,
       fetchPreviewBlob: previewBlobFetcher,
       processWatermarkBlobImpl: pageProcessClient.processWatermarkBlob,
