@@ -518,6 +518,53 @@ test('extractGeminiAssetBindingsFromResponseText should still recover a usable b
   }]);
 });
 
+test('extractGeminiAssetBindingsFromResponseText should align response order with later draft blocks when the first history tuple has no draft id', () => {
+  const historyPayload = [[
+    ['c_cdec91057e5fdcaf', 'r_8a95cf3da7dcab7d'],
+    ['c_cdec91057e5fdcaf', 'r_19c04baf39a68931', 'rc_45d85da14e2d5ef4'],
+    [['我喜欢少女'], 1, null, 0, 'fbb127bbb056c959', 0, 14, null, false, null, []],
+    [[[
+      'rc_33808c0f8008f500',
+      ['http://googleusercontent.com/image_generation_content/4'],
+      [null, null, null, null, [null, null, 8]],
+      null,
+      null,
+      null,
+      null,
+      null,
+      [2],
+      'und',
+      null,
+      null,
+      [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        [3],
+        [[[[null, null, null, [
+          null,
+          1,
+          '9531565739231490508.png',
+          'https://lh3.googleusercontent.com/gg/AMW1TPp-e0_45VrFA-EWdr1L6KKaMyKsAQiBnonsEgxm1XhMhnARJhL8mCtxfBYwk3mR1qgy4IakOTXBaGRO_WIi28IMKmqJXLDz09jgfAa7XOD45TFp4q5kkbj'
+        ]]]]]
+      ]
+    ]]]
+  ]];
+  const responseText = `)]}'\n123\n${JSON.stringify([['wrb.fr', 'hNvQHb', JSON.stringify(historyPayload), null, null, null, 'generic']])}`;
+
+  assert.deepEqual(extractGeminiAssetBindingsFromResponseText(responseText), [{
+    discoveredUrl: 'https://lh3.googleusercontent.com/gg/AMW1TPp-e0_45VrFA-EWdr1L6KKaMyKsAQiBnonsEgxm1XhMhnARJhL8mCtxfBYwk3mR1qgy4IakOTXBaGRO_WIi28IMKmqJXLDz09jgfAa7XOD45TFp4q5kkbj=s0',
+    assetIds: {
+      responseId: 'r_8a95cf3da7dcab7d',
+      draftId: 'rc_33808c0f8008f500',
+      conversationId: 'c_cdec91057e5fdcaf'
+    }
+  }]);
+});
+
 test('createGeminiDownloadRpcFetchHook should notify discovered original asset urls from download rpc responses', async () => {
   const seen = [];
   const originalFetch = async () => new Response(

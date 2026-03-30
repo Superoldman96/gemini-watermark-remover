@@ -397,6 +397,178 @@ export function extractGeminiGeneratedAssetUrlsFromResponseText(responseText) {
   return Array.from(discoveredUrls);
 }
 
+function parseGeminiHistoryPayloadsFromResponseText(responseText) {
+  if (typeof responseText !== 'string' || responseText.length === 0) {
+    return [];
+  }
+
+  const payloads = [];
+  for (const line of responseText.split(/\r?\n/)) {
+    const trimmedLine = line.trim();
+    if (!trimmedLine.startsWith('[[')) {
+      continue;
+    }
+
+    let parsedLine = null;
+    try {
+      parsedLine = JSON.parse(trimmedLine);
+    } catch {
+      continue;
+    }
+
+    if (!Array.isArray(parsedLine)) {
+      continue;
+    }
+
+    for (const entry of parsedLine) {
+      const rpcId = Array.isArray(entry) ? entry[1] : '';
+      const innerPayloadText = Array.isArray(entry) ? entry[2] : '';
+      if (rpcId !== 'hNvQHb' || typeof innerPayloadText !== 'string' || innerPayloadText.length === 0) {
+        continue;
+      }
+
+      try {
+        const innerPayload = JSON.parse(innerPayloadText);
+        if (Array.isArray(innerPayload)) {
+          payloads.push(innerPayload);
+        }
+      } catch {
+        // Ignore malformed inner payloads and keep the regex fallback below.
+      }
+    }
+  }
+
+  return payloads;
+}
+
+function isGeminiResponseTuple(value) {
+  return Array.isArray(value)
+    && value.length >= 2
+    && typeof value[0] === 'string'
+    && value[0].startsWith('c_')
+    && typeof value[1] === 'string'
+    && value[1].startsWith('r_');
+}
+
+function collectGeminiResponseSequence(node, sequence = [], seen = new Map()) {
+  if (!Array.isArray(node)) {
+    return sequence;
+  }
+
+  if (isGeminiResponseTuple(node)) {
+    const conversationId = node[0];
+    const responseId = node[1];
+    const draftId = typeof node[2] === 'string' && node[2].startsWith('rc_')
+      ? node[2]
+      : null;
+    const responseKey = `${conversationId}|${responseId}`;
+    const existing = seen.get(responseKey);
+    if (existing) {
+      if (!existing.draftId && draftId) {
+        existing.draftId = draftId;
+      }
+      return sequence;
+    }
+
+    const entry = {
+      conversationId,
+      responseId,
+      draftId
+    };
+    seen.set(responseKey, entry);
+    sequence.push(entry);
+    return sequence;
+  }
+
+  for (const item of node) {
+    collectGeminiResponseSequence(item, sequence, seen);
+  }
+
+  return sequence;
+}
+
+function collectGeminiGeneratedUrlsFromParsedNode(node, urls = new Set()) {
+  if (typeof node === 'string') {
+    const normalizedUrl = normalizeGoogleusercontentImageUrl(decodeEscapedRpcUrl(node));
+    if (isGeminiGeneratedAssetUrl(normalizedUrl)) {
+      urls.add(normalizedUrl);
+    }
+    return urls;
+  }
+
+  if (!Array.isArray(node)) {
+    return urls;
+  }
+
+  for (const item of node) {
+    collectGeminiGeneratedUrlsFromParsedNode(item, urls);
+  }
+
+  return urls;
+}
+
+function collectGeminiDraftBlocksFromParsedNode(node, blocks = []) {
+  if (!Array.isArray(node)) {
+    return blocks;
+  }
+
+  if (typeof node[0] === 'string' && node[0].startsWith('rc_')) {
+    const discoveredUrls = Array.from(collectGeminiGeneratedUrlsFromParsedNode(node));
+    if (discoveredUrls.length > 0) {
+      blocks.push({
+        draftId: node[0],
+        discoveredUrls
+      });
+    }
+    return blocks;
+  }
+
+  for (const item of node) {
+    collectGeminiDraftBlocksFromParsedNode(item, blocks);
+  }
+
+  return blocks;
+}
+
+function extractGeminiAssetBindingsFromParsedHistoryNode(historyNode) {
+  if (!Array.isArray(historyNode)) {
+    return [];
+  }
+
+  const responseSequence = collectGeminiResponseSequence(historyNode);
+  const draftBlocks = collectGeminiDraftBlocksFromParsedNode(historyNode);
+  if (responseSequence.length === 0 || draftBlocks.length === 0) {
+    return [];
+  }
+
+  const bindings = [];
+  const pairCount = Math.min(responseSequence.length, draftBlocks.length);
+  for (let index = 0; index < pairCount; index += 1) {
+    const responseEntry = responseSequence[index];
+    const draftBlock = draftBlocks[index];
+    const resolvedDraftId = (
+      responseSequence.length === 1
+      && draftBlocks.length === 1
+      && responseEntry.draftId
+    )
+      ? responseEntry.draftId
+      : (draftBlock.draftId || responseEntry.draftId || null);
+
+    for (const discoveredUrl of draftBlock.discoveredUrls) {
+      bindings.push({
+        discoveredUrl,
+        assetIds: {
+          responseId: responseEntry.responseId,
+          draftId: resolvedDraftId,
+          conversationId: responseEntry.conversationId
+        }
+      });
+    }
+  }
+
+  return bindings;
+}
+
 function collectGeminiResponseBindingAnchors(responseText) {
   if (typeof responseText !== 'string' || responseText.length === 0) {
     return [];
@@ -452,6 +624,24 @@ function collectGeminiDraftUrlBlocks(responseText) {
 export function extractGeminiAssetBindingsFromResponseText(responseText) {
   if (typeof responseText !== 'string' || responseText.length === 0) {
     return [];
+  }
+
+  const structuredBindings = [];
+  const seenStructuredBindings = new Set();
+  for (const historyPayload of parseGeminiHistoryPayloadsFromResponseText(responseText)) {
+    for (const historyNode of historyPayload) {
+      for (const binding of extractGeminiAssetBindingsFromParsedHistoryNode(historyNode)) {
+        const bindingKey = `${binding.assetIds.conversationId || ''}|${binding.assetIds.responseId || ''}|${binding.assetIds.draftId || ''}|${binding.discoveredUrl}`;
+        if (seenStructuredBindings.has(bindingKey)) {
+          continue;
+        }
+        seenStructuredBindings.add(bindingKey);
+        structuredBindings.push(binding);
+      }
+    }
+  }
+  if (structuredBindings.length > 0) {
+    return structuredBindings;
   }
 
   const anchors = collectGeminiResponseBindingAnchors(responseText);
