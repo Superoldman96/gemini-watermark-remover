@@ -27,6 +27,16 @@ test('classifyStandardWatermarkSignal should keep borderline standard evidence b
     );
 });
 
+test('classifyStandardWatermarkSignal should accept near-threshold spatial evidence when gradient evidence is very strong', () => {
+    assert.equal(
+        classifyStandardWatermarkSignal({
+            spatialScore: 0.29710616867610046,
+            gradientScore: 0.4998777626082937
+        }).tier,
+        'direct-match'
+    );
+});
+
 test('classifyAdaptiveWatermarkSignal should mark strong adaptive evidence as direct-match', () => {
     assert.equal(
         classifyAdaptiveWatermarkSignal({

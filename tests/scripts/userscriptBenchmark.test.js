@@ -23,7 +23,7 @@ test('summarizeUserscriptBenchmarkResults should aggregate totals by scenario an
     const summary = summarizeUserscriptBenchmarkResults([
         {
             scenario: 'main-thread',
-            sampleName: '4.png',
+            sampleName: '16-9.png',
             metrics: {
                 initMs: 12,
                 downloadHookMs: 90,
@@ -32,7 +32,7 @@ test('summarizeUserscriptBenchmarkResults should aggregate totals by scenario an
         },
         {
             scenario: 'main-thread',
-            sampleName: '4.png',
+            sampleName: '16-9.png',
             metrics: {
                 initMs: 14,
                 downloadHookMs: 110,
@@ -41,7 +41,7 @@ test('summarizeUserscriptBenchmarkResults should aggregate totals by scenario an
         },
         {
             scenario: 'inline-worker',
-            sampleName: 'large2.png',
+            sampleName: '9-16.png',
             metrics: {
                 initMs: 20,
                 downloadHookMs: 70,
@@ -52,11 +52,11 @@ test('summarizeUserscriptBenchmarkResults should aggregate totals by scenario an
 
     assert.equal(summary.totalRuns, 3);
     assert.deepEqual(summary.scenarios.sort(), ['inline-worker', 'main-thread']);
-    assert.deepEqual(summary.samples.sort(), ['4.png', 'large2.png']);
+    assert.deepEqual(summary.samples.sort(), ['16-9.png', '9-16.png']);
     assert.equal(summary.byScenario['main-thread'].runCount, 2);
     assert.equal(summary.byScenario['main-thread'].metrics.downloadHookMs.mean, 100);
-    assert.equal(summary.bySample['4.png'].metrics.pageReplacementMs.p50, 110);
-    assert.equal(summary.byScenarioSample['inline-worker::large2.png'].metrics.initMs.max, 20);
+    assert.equal(summary.bySample['16-9.png'].metrics.pageReplacementMs.p50, 110);
+    assert.equal(summary.byScenarioSample['inline-worker::9-16.png'].metrics.initMs.max, 20);
 });
 
 test('parseUserscriptBenchmarkCliArgs should expand both scenarios and split sample list', () => {
@@ -64,7 +64,7 @@ test('parseUserscriptBenchmarkCliArgs should expand both scenarios and split sam
         '--scenario',
         'both',
         '--samples',
-        '4.png,large2.png',
+        '16-9.png,9-16.png',
         '--iterations',
         '5',
         '--warmup',
@@ -74,7 +74,7 @@ test('parseUserscriptBenchmarkCliArgs should expand both scenarios and split sam
     ]);
 
     assert.deepEqual(parsed.scenarios, ['main-thread', 'inline-worker']);
-    assert.deepEqual(parsed.sampleNames, ['4.png', 'large2.png']);
+    assert.deepEqual(parsed.sampleNames, ['16-9.png', '9-16.png']);
     assert.equal(parsed.iterations, 5);
     assert.equal(parsed.warmupIterations, 2);
     assert.match(parsed.outputPath, /custom\.json$/);

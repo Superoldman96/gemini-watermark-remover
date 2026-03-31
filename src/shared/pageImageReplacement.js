@@ -122,6 +122,27 @@ function getAspectRatioDelta(left, right) {
   return Math.abs((left.width / left.height) - (right.width / right.height));
 }
 
+function getRenderableComparableSize(renderable) {
+  const width = Number(renderable?.naturalWidth) || Number(renderable?.width) || 0;
+  const height = Number(renderable?.naturalHeight) || Number(renderable?.height) || 0;
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+  return { width, height };
+}
+
+function shouldRejectPreviewOriginalBlobByAspectRatio(renderable, imageElement, {
+  maxAspectRatioDelta = 0.02
+} = {}) {
+  const renderableSize = getRenderableComparableSize(renderable);
+  const previewSize = getComparableImageSize(imageElement);
+  if (!renderableSize || !previewSize) {
+    return false;
+  }
+
+  return getAspectRatioDelta(renderableSize, previewSize) > maxAspectRatioDelta;
+}
+
 function hasAnyAssetIds(assetIds = null) {
   return Boolean(assetIds?.responseId || assetIds?.draftId || assetIds?.conversationId);
 }
@@ -911,8 +932,17 @@ export async function processOriginalPageImageSource({
   validateBlob = loadImageFromBlob,
   fetchBlobFromBackgroundImpl = fetchBlobFromBackground,
   preferRenderedCaptureForPreview = true,
-  allowRenderedCaptureFallbackOnValidationFailure = true
+  allowRenderedCaptureFallbackOnValidationFailure = true,
+  rejectPreviewAspectMismatch = false
 }) {
+  let validatedRenderable = null;
+  const validateOriginalBlob = typeof validateBlob === 'function'
+    ? async (blob) => {
+      const renderable = await validateBlob(blob);
+      validatedRenderable = renderable;
+      return renderable;
+    }
+    : null;
   const originalBlob = await acquireOriginalBlob({
     sourceUrl,
     image: imageElement,
@@ -922,11 +952,15 @@ export async function processOriginalPageImageSource({
     ),
     fetchBlobDirect: fetchBlobDirectImpl,
     captureRenderedImageBlob,
-    validateBlob,
+    validateBlob: validateOriginalBlob,
     preferRenderedCaptureForPreview,
     preferRenderedCaptureForBlobUrl: true,
     allowRenderedCaptureFallbackOnValidationFailure
   });
+
+  if (rejectPreviewAspectMismatch && shouldRejectPreviewOriginalBlobByAspectRatio(validatedRenderable, imageElement)) {
+      throw new Error('Preview source aspect ratio mismatches visible preview');
+  }
 
   return {
     skipped: false,
@@ -961,7 +995,8 @@ export async function processPageImageSource({
           fetchBlobDirectImpl,
           validateBlob,
           fetchBlobFromBackgroundImpl,
-          preferRenderedCaptureForPreview: false
+          preferRenderedCaptureForPreview: false,
+          rejectPreviewAspectMismatch: true
         });
       } catch {
         // Fall back to the preview-specific path when the original-quality fetch
@@ -1706,6 +1741,7 @@ export function applyPageImageProcessingResult({
       candidateDiagnostics,
       candidateDiagnosticsSummary,
       captureTiming,
+      selectionDebug: sourceResult?.processedMeta?.selectionDebug ?? null,
       blobType: processedBlob?.type || '',
       blobSize: processedBlob?.size || 0
     }

@@ -28,7 +28,7 @@ Expected result:
 
 - bump `package.json` version
 - keep `build.js` userscript `@version` sourced from `pkg.version`
-- add a dated entry to `CHANGELOG.md`
+- add dated entries to `CHANGELOG.md` and `CHANGELOG_zh.md`
 
 ## Manual Verification
 

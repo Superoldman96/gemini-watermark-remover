@@ -1,5 +1,5 @@
 import { canvasToBlob } from '../core/canvasBlob.js';
-import { removeWatermarkFromImage } from '../sdk/browser.js';
+import { WatermarkEngine } from '../core/watermarkEngine.js';
 
 function loadImageFromObjectUrl(objectUrl) {
   return new Promise((resolve, reject) => {
@@ -42,27 +42,86 @@ function withProcessorPath(meta, processorPath) {
   };
 }
 
-export async function processWatermarkBlobOnMainThread(blob, options = { adaptiveMode: 'always' }) {
-  const image = await loadImageFromBlob(blob);
-  const result = await removeWatermarkFromImage(image, options);
+function normalizeProcessorResult(result, processorPath = 'main-thread') {
   return {
-    processedBlob: await canvasToBlob(result.canvas),
-    processedMeta: withProcessorPath(result.meta || null, 'main-thread')
+    processedBlob: result?.processedBlob || null,
+    processedMeta: withProcessorPath(result?.processedMeta || null, processorPath)
   };
 }
 
-export function createSharedBlobProcessor({
-  processMainThread = processWatermarkBlobOnMainThread
+function normalizeProcessingOptions(options = {}) {
+  return {
+    adaptiveMode: 'always',
+    ...(options && typeof options === 'object' ? options : {})
+  };
+}
+
+export function createCachedImageProcessor({
+  createEngine = () => WatermarkEngine.create(),
+  encodeCanvas = canvasToBlob,
+  processorPath = 'main-thread'
 } = {}) {
-  return async function processWithBestPath(blob, options = { adaptiveMode: 'always' }) {
-    const result = await processMainThread(blob, options);
+  let enginePromise = null;
+
+  async function getEngine() {
+    if (!enginePromise) {
+      enginePromise = Promise.resolve(createEngine()).catch((error) => {
+        enginePromise = null;
+        throw error;
+      });
+    }
+    return enginePromise;
+  }
+
+  return async function processRenderable(image, options = {}) {
+    const engine = await getEngine();
+    const normalizedOptions = normalizeProcessingOptions(options);
+    const canvas = await engine.removeWatermarkFromImage(image, normalizedOptions);
+
     return {
-      processedBlob: result.processedBlob,
-      processedMeta: withProcessorPath(result.processedMeta || null, 'main-thread')
+      processedBlob: await encodeCanvas(canvas),
+      processedMeta: withProcessorPath(canvas.__watermarkMeta || null, processorPath)
     };
   };
 }
 
+export function createMainThreadBlobProcessor({
+  loadRenderable = loadImageFromBlob,
+  processRenderable = createCachedImageProcessor()
+} = {}) {
+  return async function processBlobOnMainThread(blob, options = {}) {
+    const image = await loadRenderable(blob);
+    return processRenderable(image, options);
+  };
+}
+
+export function createSharedBlobProcessor({
+  processMainThread = createMainThreadBlobProcessor(),
+  getWorkerProcessor = null,
+  onWorkerError = null
+} = {}) {
+  return async function processWithBestPath(blob, options = { adaptiveMode: 'always' }) {
+    const normalizedOptions = normalizeProcessingOptions(options);
+    const processWorker = typeof getWorkerProcessor === 'function'
+      ? getWorkerProcessor()
+      : null;
+
+    if (typeof processWorker === 'function') {
+      try {
+        return await processWorker(blob, normalizedOptions);
+      } catch (error) {
+        onWorkerError?.(error);
+      }
+    }
+
+    return normalizeProcessorResult(
+      await processMainThread(blob, normalizedOptions),
+      'main-thread'
+    );
+  };
+}
+
+export const processWatermarkBlobOnMainThread = createMainThreadBlobProcessor();
 const processWatermarkBlobWithBestPath = createSharedBlobProcessor();
 
 export async function processWatermarkBlob(blob, options = { adaptiveMode: 'always' }) {

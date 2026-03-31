@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
 
 import {
     classifyBenchmarkCase,
+    listBenchmarkSampleAssets,
     summarizeBenchmarkResults
 } from '../../scripts/sample-benchmark.js';
 
@@ -11,7 +13,7 @@ test('classifyBenchmarkCase should mark skipped expected Gemini sample as missed
         expectedGemini: true,
         applied: false,
         skipReason: 'no-watermark-detected',
-        fileName: '6.png'
+        fileName: '2-3.png'
     });
 
     assert.equal(result.status, 'fail');
@@ -46,11 +48,22 @@ test('classifyBenchmarkCase should treat changed non-Gemini region as false posi
         applied: true,
         changedRatio: 0.08,
         avgAbsoluteDeltaPerChannel: 3.2,
-        fileName: 'no-gemini.jpg'
+        fileName: '16-9.jpg'
     });
 
     assert.equal(result.status, 'fail');
     assert.equal(result.bucket, 'false-positive');
+});
+
+test('listBenchmarkSampleAssets should include every non-fix sample image under the sample directory', async () => {
+    const sampleDir = path.resolve('src/assets/samples');
+    const items = await listBenchmarkSampleAssets(sampleDir);
+
+    assert.ok(items.length > 0, 'expected benchmark sample enumeration to find sample images');
+    assert.ok(items.every((item) => item.expectedGemini === true), 'expected directory-driven samples to be treated as Gemini fixtures');
+    assert.ok(items.every((item) => !item.fileName.includes('-fix.')), 'expected fix snapshots to be excluded');
+    assert.equal(items.some((item) => item.fileName === '1-1.png'), true);
+    assert.equal(items.some((item) => item.fileName === '9-16.webp'), true);
 });
 
 test('summarizeBenchmarkResults should aggregate pass fail and bucket counts', () => {

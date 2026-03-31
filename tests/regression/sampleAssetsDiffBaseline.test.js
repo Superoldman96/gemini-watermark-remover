@@ -34,6 +34,7 @@ const LOSSY_BASELINE_TOLERANCE = Object.freeze({
     maxAvgAbsDeltaPerChannel: 1.5,
     maxChannelDelta: 24
 });
+const PAGE_EVAL_BATCH_SIZE = 4;
 
 function isLossyMimeType(mimeType) {
     return mimeType === 'image/jpeg' || mimeType === 'image/webp';
@@ -149,7 +150,7 @@ async function openProcessingHarnessPage(page) {
     await page.setContent('<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body></body></html>');
 }
 
-test('sample assets should match local -fix baselines when they are present', async (t) => {
+test('sample assets should match local fix-directory baselines when they are present', { timeout: 120000 }, async (t) => {
     const fileNames = (await readdir(SAMPLE_DIR))
         .filter((name) => IMAGE_EXTENSIONS.has(path.extname(name).toLowerCase()))
         .filter((name) => !name.includes('-fix.'))
@@ -165,7 +166,7 @@ test('sample assets should match local -fix baselines when they are present', as
     }
 
     if (filesWithLocalBaselines.length === 0) {
-        t.skip('No local -fix baselines found under src/assets/samples');
+        t.skip('No local baselines found under src/assets/samples/fix');
         return;
     }
 
@@ -202,121 +203,126 @@ test('sample assets should match local -fix baselines when they are present', as
 
         const bg48Url = await readImageDataUrl(BG48_PATH);
         const bg96Url = await readImageDataUrl(BG96_PATH);
-        const results = await page.evaluate(async ({ baseUrl, bg48Url, bg96Url, payload }) => {
-            const { calculateAlphaMap } = await import(`${baseUrl}/src/core/alphaMap.js`);
-            const { interpolateAlphaMap } = await import(`${baseUrl}/src/core/adaptiveDetector.js`);
-            const { processWatermarkImageData } = await import(`${baseUrl}/src/core/watermarkProcessor.js`);
+        const results = [];
+        for (let start = 0; start < payload.length; start += PAGE_EVAL_BATCH_SIZE) {
+            const batch = payload.slice(start, start + PAGE_EVAL_BATCH_SIZE);
+            const batchResults = await page.evaluate(async ({ baseUrl, bg48Url, bg96Url, payload }) => {
+                const { calculateAlphaMap } = await import(`${baseUrl}/src/core/alphaMap.js`);
+                const { interpolateAlphaMap } = await import(`${baseUrl}/src/core/adaptiveDetector.js`);
+                const { processWatermarkImageData } = await import(`${baseUrl}/src/core/watermarkProcessor.js`);
 
-            const decodeImageData = async (imageUrl) => {
-                const img = new Image();
-                img.src = imageUrl;
-                await img.decode();
+                const decodeImageData = async (imageUrl) => {
+                    const img = new Image();
+                    img.src = imageUrl;
+                    await img.decode();
 
-                const canvas = document.createElement('canvas');
-                canvas.width = img.naturalWidth;
-                canvas.height = img.naturalHeight;
-                const ctx = canvas.getContext('2d', { willReadFrequently: true });
-                ctx.drawImage(img, 0, 0);
-                return ctx.getImageData(0, 0, canvas.width, canvas.height);
-            };
-
-            const encodeAndDecodeImageData = async (imageData, mimeType) => {
-                const canvas = document.createElement('canvas');
-                canvas.width = imageData.width;
-                canvas.height = imageData.height;
-                const ctx = canvas.getContext('2d');
-                ctx.putImageData(imageData, 0, 0);
-
-                const blob = await new Promise((resolve, reject) => {
-                    canvas.toBlob((nextBlob) => {
-                        if (nextBlob) {
-                            resolve(nextBlob);
-                        } else {
-                            reject(new Error('Failed to encode baseline image blob'));
-                        }
-                    }, mimeType);
-                });
-
-                const blobUrl = URL.createObjectURL(blob);
-                try {
-                    return await decodeImageData(blobUrl);
-                } finally {
-                    URL.revokeObjectURL(blobUrl);
-                }
-            };
-
-            const measureImageDiff = (actualImageData, expectedImageData) => {
-                if (actualImageData.width !== expectedImageData.width || actualImageData.height !== expectedImageData.height) {
-                    return {
-                        sizeMismatch: true,
-                        actualWidth: actualImageData.width,
-                        actualHeight: actualImageData.height,
-                        expectedWidth: expectedImageData.width,
-                        expectedHeight: expectedImageData.height
-                    };
-                }
-
-                let changedPixels = 0;
-                let totalAbsDelta = 0;
-                let maxChannelDelta = 0;
-                const totalPixels = actualImageData.width * actualImageData.height;
-
-                for (let i = 0; i < actualImageData.data.length; i += 4) {
-                    let pixelChanged = false;
-                    for (let channel = 0; channel < 3; channel++) {
-                        const delta = Math.abs(actualImageData.data[i + channel] - expectedImageData.data[i + channel]);
-                        totalAbsDelta += delta;
-                        if (delta > maxChannelDelta) maxChannelDelta = delta;
-                        if (delta > 0) pixelChanged = true;
-                    }
-                    if (pixelChanged) changedPixels++;
-                }
-
-                return {
-                    sizeMismatch: false,
-                    changedPixels,
-                    totalPixels,
-                    changedRatio: totalPixels > 0 ? changedPixels / totalPixels : 0,
-                    avgAbsDeltaPerChannel: totalPixels > 0 ? totalAbsDelta / (totalPixels * 3) : 0,
-                    maxChannelDelta
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.naturalWidth;
+                    canvas.height = img.naturalHeight;
+                    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                    ctx.drawImage(img, 0, 0);
+                    return ctx.getImageData(0, 0, canvas.width, canvas.height);
                 };
-            };
 
-            const alpha48 = calculateAlphaMap(await decodeImageData(bg48Url));
-            const alpha96 = calculateAlphaMap(await decodeImageData(bg96Url));
-            const results = [];
+                const encodeAndDecodeImageData = async (imageData, mimeType) => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = imageData.width;
+                    canvas.height = imageData.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.putImageData(imageData, 0, 0);
 
-            for (const item of payload) {
-                const imageData = await decodeImageData(item.inputUrl);
-                const baselineImageData = await decodeImageData(item.baselineUrl);
-                const result = processWatermarkImageData(imageData, {
-                    alpha48,
-                    alpha96,
-                    maxPasses: 4,
-                    getAlphaMap: (size) => size === 48 ? alpha48 : size === 96 ? alpha96 : interpolateAlphaMap(alpha96, 96, size)
-                });
-                const actualImageData = item.compareMode === 'raw'
-                    ? result.imageData
-                    : await encodeAndDecodeImageData(result.imageData, item.mimeType);
+                    const blob = await new Promise((resolve, reject) => {
+                        canvas.toBlob((nextBlob) => {
+                            if (nextBlob) {
+                                resolve(nextBlob);
+                            } else {
+                                reject(new Error('Failed to encode baseline image blob'));
+                            }
+                        }, mimeType);
+                    });
 
-                results.push({
-                    fileName: item.fileName,
-                    baselineName: item.baselineName,
-                    mimeType: item.mimeType,
-                    compareMode: item.compareMode,
-                    applied: result.meta.applied,
-                    source: result.meta.source,
-                    diff: measureImageDiff(actualImageData, baselineImageData)
-                });
-            }
+                    const blobUrl = URL.createObjectURL(blob);
+                    try {
+                        return await decodeImageData(blobUrl);
+                    } finally {
+                        URL.revokeObjectURL(blobUrl);
+                    }
+                };
 
-            return results;
-        }, {
-            baseUrl,
-            bg48Url,
-            bg96Url,
-            payload
-        });
+                const measureImageDiff = (actualImageData, expectedImageData) => {
+                    if (actualImageData.width !== expectedImageData.width || actualImageData.height !== expectedImageData.height) {
+                        return {
+                            sizeMismatch: true,
+                            actualWidth: actualImageData.width,
+                            actualHeight: actualImageData.height,
+                            expectedWidth: expectedImageData.width,
+                            expectedHeight: expectedImageData.height
+                        };
+                    }
+
+                    let changedPixels = 0;
+                    let totalAbsDelta = 0;
+                    let maxChannelDelta = 0;
+                    const totalPixels = actualImageData.width * actualImageData.height;
+
+                    for (let i = 0; i < actualImageData.data.length; i += 4) {
+                        let pixelChanged = false;
+                        for (let channel = 0; channel < 3; channel++) {
+                            const delta = Math.abs(actualImageData.data[i + channel] - expectedImageData.data[i + channel]);
+                            totalAbsDelta += delta;
+                            if (delta > maxChannelDelta) maxChannelDelta = delta;
+                            if (delta > 0) pixelChanged = true;
+                        }
+                        if (pixelChanged) changedPixels++;
+                    }
+
+                    return {
+                        sizeMismatch: false,
+                        changedPixels,
+                        totalPixels,
+                        changedRatio: totalPixels > 0 ? changedPixels / totalPixels : 0,
+                        avgAbsDeltaPerChannel: totalPixels > 0 ? totalAbsDelta / (totalPixels * 3) : 0,
+                        maxChannelDelta
+                    };
+                };
+
+                const alpha48 = calculateAlphaMap(await decodeImageData(bg48Url));
+                const alpha96 = calculateAlphaMap(await decodeImageData(bg96Url));
+                const results = [];
+
+                for (const item of payload) {
+                    const imageData = await decodeImageData(item.inputUrl);
+                    const baselineImageData = await decodeImageData(item.baselineUrl);
+                    const result = processWatermarkImageData(imageData, {
+                        alpha48,
+                        alpha96,
+                        maxPasses: 4,
+                        getAlphaMap: (size) => size === 48 ? alpha48 : size === 96 ? alpha96 : interpolateAlphaMap(alpha96, 96, size)
+                    });
+                    const actualImageData = item.compareMode === 'raw'
+                        ? result.imageData
+                        : await encodeAndDecodeImageData(result.imageData, item.mimeType);
+
+                    results.push({
+                        fileName: item.fileName,
+                        baselineName: item.baselineName,
+                        mimeType: item.mimeType,
+                        compareMode: item.compareMode,
+                        applied: result.meta.applied,
+                        source: result.meta.source,
+                        diff: measureImageDiff(actualImageData, baselineImageData)
+                    });
+                }
+
+                return results;
+            }, {
+                baseUrl,
+                bg48Url,
+                bg96Url,
+                payload: batch
+            });
+            results.push(...batchResults);
+        }
 
         for (const result of results) {
             assert.equal(result.diff.sizeMismatch, false, `${result.fileName}: image size mismatch vs ${result.baselineName}`);

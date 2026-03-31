@@ -41,7 +41,6 @@ test('real Gemini preview-sized page image should remove the bottom-right waterm
             alpha48,
             alpha96,
             adaptiveMode: 'never',
-            processingProfile: 'preview-fast',
             getAlphaMap: (size) => interpolateAlphaMap(alpha96, 96, size)
         });
 
@@ -83,7 +82,7 @@ test('real Gemini preview-sized page image should remove the bottom-right waterm
     }
 });
 
-test('real Gemini preview-fast path should avoid expensive subpixel refinement when edge cleanup is enough', async (t) => {
+test('real Gemini preview path should avoid expensive subpixel refinement when edge cleanup is enough', async (t) => {
     let browser;
     try {
         browser = await chromium.launch({ headless: true });
@@ -106,7 +105,6 @@ test('real Gemini preview-fast path should avoid expensive subpixel refinement w
             alpha48,
             alpha96,
             adaptiveMode: 'never',
-            processingProfile: 'preview-fast',
             debugTimings: true,
             getAlphaMap: (size) => interpolateAlphaMap(alpha96, 96, size)
         });
@@ -114,7 +112,7 @@ test('real Gemini preview-fast path should avoid expensive subpixel refinement w
         assert.ok(result.meta.applied, `skipReason=${result.meta.skipReason}`);
         assert.ok(
             result.meta.source.includes('+edge-cleanup'),
-            `expected preview-fast real page fixture to use edge cleanup, source=${result.meta.source}`
+            `expected preview real page fixture to use edge cleanup, source=${result.meta.source}`
         );
         assert.equal(result.meta.subpixelShift, null, `expected no accepted subpixel shift, source=${result.meta.source}`);
         assert.ok(
@@ -123,14 +121,14 @@ test('real Gemini preview-fast path should avoid expensive subpixel refinement w
         );
         assert.ok(
             result.debugTimings.subpixelRefinementMs < 5,
-            `expected preview-fast to skip expensive subpixel sweep, got ${result.debugTimings.subpixelRefinementMs}ms`
+            `expected preview path to skip expensive subpixel sweep, got ${result.debugTimings.subpixelRefinementMs}ms`
         );
     } finally {
         await browser.close();
     }
 });
 
-test('real Gemini strong preview fixture should skip expensive preview-fast subpixel refinement when no subpixel variant is accepted', async (t) => {
+test('real Gemini strong preview fixture should keep aggressive edge cleanup without profile overrides', async (t) => {
     let browser;
     try {
         browser = await chromium.launch({ headless: true });
@@ -153,7 +151,6 @@ test('real Gemini strong preview fixture should skip expensive preview-fast subp
             alpha48,
             alpha96,
             adaptiveMode: 'never',
-            processingProfile: 'preview-fast',
             debugTimings: true,
             getAlphaMap: (size) => interpolateAlphaMap(alpha96, 96, size)
         });
@@ -178,7 +175,7 @@ test('real Gemini strong preview fixture should skip expensive preview-fast subp
         );
         assert.ok(
             result.debugTimings.subpixelRefinementMs < 5,
-            `expected preview-fast to skip expensive no-op subpixel sweep, got ${result.debugTimings.subpixelRefinementMs}ms`
+            `expected preview path to skip expensive no-op subpixel sweep, got ${result.debugTimings.subpixelRefinementMs}ms`
         );
     } finally {
         await browser.close();

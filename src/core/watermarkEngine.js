@@ -110,7 +110,6 @@ export class WatermarkEngine {
             alpha96,
             adaptiveMode: options.adaptiveMode,
             maxPasses: options.maxPasses,
-            processingProfile: options.processingProfile,
             debugTimings: options.debugTimings === true,
             getAlphaMap: (size) => this.alphaMaps[size] || interpolateAlphaMap(alpha96, 96, size)
         });

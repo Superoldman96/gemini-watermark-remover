@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.7 - 2026-03-31
+
+### Userscript
+
+- Improved watermark anchor recovery for near-official portrait outputs and preview-sized Gemini images that drift away from the default anchor.
+- Stopped harmful extra removal passes earlier when the first pass already clears the watermark-shaped residual well enough.
+- Kept preview-anchor cleanup on the cheaper edge-cleanup path instead of reintroducing expensive no-op subpixel sweeps.
+
+### Quality
+
+- Added regression coverage for anchor recovery, pass stopping, and release metadata consistency.
+- Added the single-pass versus multipass tradeoff note used during this release cycle.
+
 ## 1.0.6 - 2026-03-30
 
 ### Userscript

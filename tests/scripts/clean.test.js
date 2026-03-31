@@ -25,18 +25,18 @@ test('clean script should default to generated artifacts and keep the fixed Chro
   assert.deepEqual(DEFAULT_CLEAN_PATHS, [
     'dist',
     '.artifacts',
-    'src/assets/samples/*-fix.*'
+    'src/assets/samples/fix'
   ]);
   assert.deepEqual(OPTIONAL_CLEAN_PATHS, ['.chrome-debug']);
   assert.deepEqual(resolveCleanupTargets(), [
     'dist',
     '.artifacts',
-    'src/assets/samples/*-fix.*'
+    'src/assets/samples/fix'
   ]);
   assert.deepEqual(resolveCleanupTargets({ includeProfile: true }), [
     'dist',
     '.artifacts',
-    'src/assets/samples/*-fix.*',
+    'src/assets/samples/fix',
     '.chrome-debug'
   ]);
 });

@@ -30,6 +30,9 @@ const STANDARD_FAST_PATH_RESIDUAL_THRESHOLD = 0.22;
 const STANDARD_FAST_PATH_GRADIENT_THRESHOLD = 0.08;
 const STANDARD_NEARBY_SEARCH_RESIDUAL_THRESHOLD = 0.18;
 const STANDARD_NEARBY_SEARCH_GRADIENT_THRESHOLD = 0.05;
+const STANDARD_LOCAL_SHIFT_STRONG_BASE_GRADIENT_SCORE = 0.35;
+const STANDARD_LOCAL_SHIFT_WEAK_CANDIDATE_GRADIENT_SCORE = 0.12;
+const STANDARD_LOCAL_SHIFT_MIN_VALIDATION_ADVANTAGE = 0.3;
 const TEMPLATE_ALIGN_SHIFTS = [-0.5, -0.25, 0, 0.25, 0.5];
 const TEMPLATE_ALIGN_SCALES = [0.99, 1, 1.01];
 const STANDARD_NEARBY_SHIFTS = [-12, -8, -4, 0, 4, 8, 12];
@@ -46,8 +49,8 @@ const PREVIEW_ANCHOR_MIN_SCORE = 0.2;
 const PREVIEW_ANCHOR_LOCAL_DELTAS = [-1, 0, 1];
 const PREVIEW_TEMPLATE_ALIGN_SHIFTS = [-1, -0.5, 0, 0.5, 1];
 const PREVIEW_TEMPLATE_ALIGN_SCALES = [0.985, 1, 1.015];
-const PREVIEW_FAST_GAIN_SKIP_RESIDUAL_THRESHOLD = 0.22;
-const PREVIEW_FAST_GAIN_SKIP_GRADIENT_THRESHOLD = 0.24;
+const PREVIEW_ANCHOR_GAIN_SKIP_RESIDUAL_THRESHOLD = 0.22;
+const PREVIEW_ANCHOR_GAIN_SKIP_GRADIENT_THRESHOLD = 0.24;
 
 export { assessReferenceTextureAlignment, calculateNearBlackRatio, scoreRegion } from './restorationMetrics.js';
 
@@ -175,11 +178,11 @@ function createAlphaMapResolver({ alpha48, alpha96, getAlphaMap }) {
     };
 }
 
-function isPreviewFastGainSearchRequired(candidate) {
+function isPreviewAnchorGainSearchRequired(candidate) {
     if (!candidate) return true;
 
-    return Math.abs(candidate.processedSpatialScore) > PREVIEW_FAST_GAIN_SKIP_RESIDUAL_THRESHOLD ||
-        Math.max(0, candidate.processedGradientScore) > PREVIEW_FAST_GAIN_SKIP_GRADIENT_THRESHOLD;
+    return Math.abs(candidate.processedSpatialScore) > PREVIEW_ANCHOR_GAIN_SKIP_RESIDUAL_THRESHOLD ||
+        Math.max(0, candidate.processedGradientScore) > PREVIEW_ANCHOR_GAIN_SKIP_GRADIENT_THRESHOLD;
 }
 
 export function evaluateRestorationCandidate({
@@ -331,6 +334,9 @@ function ensureCandidateImageData(candidate, originalImageData) {
 export function pickBetterCandidate(currentBest, candidate, minCostDelta = 0.005) {
     if (!candidate?.accepted) return currentBest;
     if (!currentBest) return candidate;
+    if (shouldPreserveStrongStandardAnchor(currentBest, candidate)) {
+        return currentBest;
+    }
     if (candidate.validationCost < currentBest.validationCost - minCostDelta) {
         return candidate;
     }
@@ -339,6 +345,34 @@ export function pickBetterCandidate(currentBest, candidate, minCostDelta = 0.005
         return candidate;
     }
     return currentBest;
+}
+
+function isStandardCandidateSource(candidate) {
+    return typeof candidate?.source === 'string' && candidate.source.startsWith('standard');
+}
+
+function shouldPreserveStrongStandardAnchor(currentBest, candidate) {
+    if (candidate?.provenance?.localShift !== true) return false;
+    if (currentBest?.provenance?.localShift === true) return false;
+    if (!isStandardCandidateSource(currentBest) || !isStandardCandidateSource(candidate)) return false;
+
+    const baseGradient = Number(currentBest.originalGradientScore);
+    const candidateGradient = Number(candidate.originalGradientScore);
+    const validationAdvantage = Number(currentBest.validationCost) - Number(candidate.validationCost);
+    if (
+        !Number.isFinite(baseGradient) ||
+        !Number.isFinite(candidateGradient) ||
+        !Number.isFinite(validationAdvantage)
+    ) {
+        return false;
+    }
+
+    // A nearby shift should not displace a default anchor that already carries
+    // strong watermark-shaped gradient evidence unless the shifted candidate is
+    // materially better overall.
+    return baseGradient >= STANDARD_LOCAL_SHIFT_STRONG_BASE_GRADIENT_SCORE &&
+        candidateGradient < STANDARD_LOCAL_SHIFT_WEAK_CANDIDATE_GRADIENT_SCORE &&
+        validationAdvantage < STANDARD_LOCAL_SHIFT_MIN_VALIDATION_ADVANTAGE;
 }
 
 export function findBestTemplateWarp({
@@ -653,10 +687,8 @@ export function selectInitialCandidate({
     alpha96,
     getAlphaMap,
     allowAdaptiveSearch,
-    alphaGainCandidates,
-    searchProfile = 'default'
+    alphaGainCandidates
 }) {
-    const preferPreviewFastPath = searchProfile === 'preview-fast';
     const resolveAlphaMap = createAlphaMapResolver({ alpha48, alpha96, getAlphaMap });
     let alphaMap = config.logoSize === 96 ? alpha96 : alpha48;
     let standardCandidateSeeds = buildStandardCandidateSeeds({
@@ -820,7 +852,7 @@ export function selectInitialCandidate({
         }
     }
 
-    if (!baseCandidate && preferPreviewFastPath) {
+    if (!baseCandidate) {
         const previewAnchorCandidate = searchBottomRightPreviewCandidate({
             originalImageData,
             config,
@@ -839,7 +871,11 @@ export function selectInitialCandidate({
         }
     }
 
-    if (!preferPreviewFastPath && baseDecisionTier !== 'direct-match' && shouldEscalateSearch(baseCandidate)) {
+    if (
+        baseDecisionTier !== 'direct-match' &&
+        !baseCandidate?.provenance?.previewAnchor &&
+        shouldEscalateSearch(baseCandidate)
+    ) {
         const sizeJitterCandidate = searchStandardSizeJitterCandidate({
             originalImageData,
             candidateSeeds: standardCandidateSeeds,
@@ -899,7 +935,7 @@ export function selectInitialCandidate({
     }
 
     if (
-        !preferPreviewFastPath &&
+        !baseCandidate?.provenance?.previewAnchor &&
         !hasReliableAdaptiveWatermarkSignal(adaptive) &&
         shouldSearchNearbyStandardCandidate(baseCandidate, originalImageData)
     ) {
@@ -917,25 +953,6 @@ export function selectInitialCandidate({
             if (baseCandidate !== previousCandidate && baseCandidate) {
                 baseDecisionTier = 'validated-match';
             }
-        }
-    }
-
-    if (!preferPreviewFastPath && !baseCandidate) {
-        const previewAnchorCandidate = searchBottomRightPreviewCandidate({
-            originalImageData,
-            config,
-            alpha48,
-            alpha96,
-            getAlphaMap,
-            resolveAlphaMap,
-            adaptiveConfidence
-        });
-        if (previewAnchorCandidate) {
-            baseCandidate = {
-                ...previewAnchorCandidate,
-                source: `${previewAnchorCandidate.source}+validated`
-            };
-            baseDecisionTier = 'validated-match';
         }
     }
 
@@ -1010,8 +1027,8 @@ export function selectInitialCandidate({
         }
     }
 
-    const shouldRunGainSearch = preferPreviewFastPath
-        ? isPreviewFastGainSearchRequired(selectedTrial)
+    const shouldRunGainSearch = selectedTrial.provenance?.previewAnchor === true
+        ? isPreviewAnchorGainSearchRequired(selectedTrial)
         : shouldEscalateSearch(selectedTrial);
     let bestGainTrial = selectedTrial;
     if (shouldRunGainSearch) {

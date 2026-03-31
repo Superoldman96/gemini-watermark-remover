@@ -72,6 +72,14 @@ test('resolveGeminiWatermarkSearchConfigs should keep default config first and d
     );
 });
 
+test('resolveOfficialGeminiSearchConfigs should not downgrade exact official dimensions into smaller search variants', () => {
+    const configs = resolveOfficialGeminiSearchConfigs(768, 1376);
+
+    assert.deepEqual(configs, [
+        { logoSize: 96, marginRight: 64, marginBottom: 64 }
+    ]);
+});
+
 test('resolveOfficialGeminiWatermarkConfig should cover every documented portrait Gemini size', () => {
     const portraitEntries = OFFICIAL_GEMINI_IMAGE_SIZES.filter((entry) => entry.width < entry.height);
 

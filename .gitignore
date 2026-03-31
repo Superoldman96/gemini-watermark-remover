@@ -23,3 +23,4 @@ yarn-error.log*
 src/assets/samples/*-fix.*
 .tmp-*.png
 .chrome-debug
+src/assets/samples/fix/

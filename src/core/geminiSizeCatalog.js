@@ -150,6 +150,14 @@ export function resolveOfficialGeminiSearchConfigs(
     const normalizedHeight = normalizeDimension(height);
     if (!normalizedWidth || !normalizedHeight) return [];
 
+    const exactOfficialConfig = resolveOfficialGeminiWatermarkConfig(
+        normalizedWidth,
+        normalizedHeight
+    );
+    if (exactOfficialConfig) {
+        return [{ ...exactOfficialConfig }];
+    }
+
     // Near-official exports are often uniformly scaled from an official size.
     // We project the official watermark anchor into the current dimensions, but
     // this only proposes search seeds; later validation still decides safety.

@@ -1,6 +1,5 @@
 import path from 'node:path';
-import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
-import { constants as fsConstants } from 'node:fs';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
 import { chromium } from 'playwright';
@@ -14,27 +13,12 @@ import {
     resolveInitialStandardConfig
 } from '../src/core/watermarkConfig.js';
 
-const KNOWN_GEMINI_SAMPLE_ASSETS = Object.freeze([
-    '4.png',
-    '5.png',
-    '5.webp',
-    '6.png',
-    '7.png',
-    '8.png',
-    'large.png',
-    'large2.png',
-    'large3.png'
-]);
-
-const KNOWN_NON_GEMINI_SAMPLE_ASSETS = Object.freeze([
-    'no-gemini.jpg'
-]);
-
 const DEFAULT_OUTPUT_PATH = path.resolve('.artifacts/sample-benchmark/latest.json');
 const RESIDUAL_FAIL_THRESHOLD = 0.22;
 const MIN_EXPECTED_SUPPRESSION_GAIN = 0.3;
 const NON_GEMINI_MAX_CHANGED_RATIO = 0.01;
 const NON_GEMINI_MAX_AVG_DELTA = 0.5;
+const IMAGE_EXTENSIONS = new Set(['.png', '.webp', '.jpg', '.jpeg']);
 
 function inferMimeType(filePath) {
     const ext = path.extname(filePath).toLowerCase();
@@ -43,13 +27,15 @@ function inferMimeType(filePath) {
     return 'image/png';
 }
 
-async function exists(filePath) {
-    try {
-        await access(filePath, fsConstants.F_OK);
-        return true;
-    } catch {
-        return false;
-    }
+export async function listBenchmarkSampleAssets(sampleDir = path.resolve('src/assets/samples')) {
+    return (await readdir(sampleDir))
+        .filter((name) => IMAGE_EXTENSIONS.has(path.extname(name).toLowerCase()))
+        .filter((name) => !name.includes('-fix.'))
+        .sort((left, right) => left.localeCompare(right))
+        .map((fileName) => ({
+            fileName,
+            expectedGemini: true
+        }));
 }
 
 async function decodeImageDataInPage(page, filePath) {
@@ -230,15 +216,10 @@ async function buildBenchmarkReport({
         };
 
         const results = [];
-        const sampleItems = [
-            ...KNOWN_GEMINI_SAMPLE_ASSETS.map((fileName) => ({ fileName, expectedGemini: true })),
-            ...KNOWN_NON_GEMINI_SAMPLE_ASSETS.map((fileName) => ({ fileName, expectedGemini: false }))
-        ];
+        const sampleItems = await listBenchmarkSampleAssets(sampleDir);
 
         for (const item of sampleItems) {
             const filePath = path.join(sampleDir, item.fileName);
-            if (!(await exists(filePath))) continue;
-
             const imageData = await decodeImageDataInPage(page, filePath);
             const processed = processWatermarkImageData(imageData, {
                 alpha48,

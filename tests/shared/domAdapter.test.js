@@ -17,12 +17,12 @@ test('getGeminiImageQuerySelector should target img descendants for every Gemini
 });
 
 test('resolveCandidateImageUrl should prefer explicit data-gwr-source-url over rendered src', () => {
-  const url = resolveCandidateImageUrl({
+    const url = resolveCandidateImageUrl({
     dataset: {
       gwrSourceUrl: 'https://lh3.googleusercontent.com/rd-gg/example=s1024'
     },
-    currentSrc: 'http://127.0.0.1:8080/src/assets/samples/5.png',
-    src: 'http://127.0.0.1:8080/src/assets/samples/5.png'
+    currentSrc: 'http://127.0.0.1:8080/src/assets/samples/16-9.png',
+    src: 'http://127.0.0.1:8080/src/assets/samples/16-9.png'
   });
 
   assert.equal(url, 'https://lh3.googleusercontent.com/rd-gg/example=s1024');
@@ -76,8 +76,8 @@ test('isProcessableGeminiImageElement should accept generated-image descendants 
     naturalHeight: 1024,
     clientWidth: 512,
     clientHeight: 512,
-    currentSrc: 'http://127.0.0.1:8080/src/assets/samples/5.png',
-    src: 'http://127.0.0.1:8080/src/assets/samples/5.png',
+    currentSrc: 'http://127.0.0.1:8080/src/assets/samples/16-9.png',
+    src: 'http://127.0.0.1:8080/src/assets/samples/16-9.png',
     closest: (selector) => selector === 'generated-image,.generated-image-container' ? {} : null
   };
 
@@ -183,8 +183,8 @@ test('isProcessableGeminiImageElement should reject non-Gemini urls and tiny ima
     naturalHeight: 96,
     clientWidth: 48,
     clientHeight: 48,
-    currentSrc: 'http://127.0.0.1:8080/src/assets/samples/5.png',
-    src: 'http://127.0.0.1:8080/src/assets/samples/5.png',
+    currentSrc: 'http://127.0.0.1:8080/src/assets/samples/16-9.png',
+    src: 'http://127.0.0.1:8080/src/assets/samples/16-9.png',
     closest: () => null
   }), false);
 });

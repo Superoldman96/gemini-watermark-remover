@@ -26,6 +26,16 @@ test('hasReliableStandardWatermarkSignal should keep borderline spatial matches 
     );
 });
 
+test('hasReliableStandardWatermarkSignal should accept near-threshold spatial evidence when gradient evidence is very strong', () => {
+    assert.equal(
+        hasReliableStandardWatermarkSignal({
+            spatialScore: 0.29710616867610046,
+            gradientScore: 0.4998777626082937
+        }),
+        true
+    );
+});
+
 test('hasReliableStandardWatermarkSignal should reject weak low-gradient false positive', () => {
     assert.equal(
         hasReliableStandardWatermarkSignal({

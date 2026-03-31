@@ -705,7 +705,7 @@ test('processPreviewPageImageSource should return confirmed preview candidate re
   assert.equal(result.selectedStrategy, 'page-fetch');
 });
 
-test('processPreviewPageImageSource should use full-strength watermark processing without preview-fast overrides', async () => {
+test('processPreviewPageImageSource should use full-strength watermark processing without preview-only overrides', async () => {
   const originalBlob = new Blob(['page-fetch'], { type: 'image/webp' });
   let receivedOptions = null;
 
@@ -960,6 +960,29 @@ test('processPageImageSource should treat blob page images as full-strength rend
   ]);
 });
 
+function assertOriginalQualityValidationFlow(calls, {
+  originalBlob,
+  tail
+}) {
+  assert.deepEqual(calls[0], [
+    'background',
+    'https://lh3.googleusercontent.com/gg/example-token=s0-rj',
+    'function'
+  ]);
+
+  const validateCalls = calls.filter((entry) => Array.isArray(entry) && entry[0] === 'validate');
+  assert.ok(
+    validateCalls.length >= 1 && validateCalls.length <= 2,
+    `expected 1 or 2 validate calls, got ${validateCalls.length}`
+  );
+  for (const entry of validateCalls) {
+    assert.deepEqual(entry, ['validate', originalBlob]);
+  }
+
+  const nonValidateTail = calls.filter((entry) => !(Array.isArray(entry) && entry[0] === 'validate')).slice(1);
+  assert.deepEqual(nonValidateTail, tail);
+}
+
 test('processPageImageSource should treat explicitly bound Gemini preview urls as original-quality sources', async () => {
   const sourceUrl = 'https://lh3.googleusercontent.com/gg/example-token=s1024-rj';
   const originalBlob = new Blob(['background'], { type: 'image/jpeg' });
@@ -996,7 +1019,7 @@ test('processPageImageSource should treat explicitly bound Gemini preview urls a
     },
     processWatermarkBlobImpl: async () => {
       calls.push('preview-process');
-      throw new Error('preview-fast processing should not run');
+      throw new Error('preview-only processing should not run');
     },
     removeWatermarkFromBlobImpl: async (blob) => {
       calls.push(['remove', blob]);
@@ -1006,11 +1029,12 @@ test('processPageImageSource should treat explicitly bound Gemini preview urls a
 
   assert.equal(result.skipped, false);
   assert.equal(result.processedBlob, processedBlob);
-  assert.deepEqual(calls, [
-    ['background', 'https://lh3.googleusercontent.com/gg/example-token=s0-rj', 'function'],
-    ['validate', originalBlob],
-    ['remove', originalBlob]
-  ]);
+  assertOriginalQualityValidationFlow(calls, {
+    originalBlob,
+    tail: [
+      ['remove', originalBlob]
+    ]
+  });
 });
 
 test('processPageImageSource should prefer original-quality processing for Gemini preview urls before preview fallback', async () => {
@@ -1054,11 +1078,85 @@ test('processPageImageSource should prefer original-quality processing for Gemin
 
   assert.equal(result.skipped, false);
   assert.equal(result.processedBlob, processedBlob);
-  assert.deepEqual(calls, [
-    ['background', 'https://lh3.googleusercontent.com/gg/example-token=s0-rj', 'function'],
-    ['validate', originalBlob],
-    ['remove', originalBlob]
-  ]);
+  assertOriginalQualityValidationFlow(calls, {
+    originalBlob,
+    tail: [
+      ['remove', originalBlob]
+    ]
+  });
+});
+
+test('processPageImageSource should fall back to preview processing when original-quality preview blob aspect ratio mismatches the visible preview', async () => {
+  const sourceUrl = 'https://lh3.googleusercontent.com/gg/example-token=s1024-rj';
+  const originalBlob = new Blob(['background'], { type: 'image/jpeg' });
+  const previewBlob = new Blob(['preview'], { type: 'image/webp' });
+  const processedBlob = new Blob(['processed'], { type: 'image/png' });
+  const imageElement = {
+    dataset: {},
+    naturalWidth: 426,
+    naturalHeight: 758,
+    clientWidth: 426,
+    clientHeight: 758
+  };
+  const calls = [];
+
+  const result = await processPageImageSource({
+    sourceUrl,
+    imageElement,
+    fetchPreviewBlob: async (url) => {
+      calls.push(['preview-fetch', url]);
+      return previewBlob;
+    },
+    fetchBlobFromBackgroundImpl: async (url, fallbackFetchBlob) => {
+      calls.push(['background', url, typeof fallbackFetchBlob]);
+      return originalBlob;
+    },
+    fetchBlobDirectImpl: async () => {
+      calls.push('direct-fetch');
+      throw new Error('direct fetch should not run');
+    },
+    captureRenderedImageBlob: async () => {
+      calls.push('capture');
+      throw new Error('rendered capture should not run');
+    },
+    validateBlob: async (blob) => {
+      calls.push(['validate', blob]);
+      return { width: 1024, height: 1024 };
+    },
+    processWatermarkBlobImpl: async (blob) => {
+      calls.push(['preview-process', blob]);
+      return {
+        processedBlob,
+        processedMeta: {
+          applied: true,
+          decisionTier: 'validated-match',
+          size: 34,
+          position: { x: 392, y: 724, width: 34, height: 34 },
+          source: 'standard+preview-anchor+validated',
+          detection: {
+            originalSpatialScore: 0.41,
+            processedSpatialScore: 0.08,
+            suppressionGain: 0.33
+          }
+        }
+      };
+    },
+    removeWatermarkFromBlobImpl: async (blob) => {
+      calls.push(['remove', blob]);
+      throw new Error('original-quality removal should not run when the preview aspect ratio mismatches');
+    }
+  });
+
+  assert.equal(result.skipped, false);
+  assert.equal(result.processedBlob, processedBlob);
+  assert.equal(result.selectedStrategy, 'page-fetch');
+  assertOriginalQualityValidationFlow(calls, {
+    originalBlob,
+    tail: [
+      ['preview-fetch', 'https://lh3.googleusercontent.com/gg/example-token=s0-rj'],
+      ['preview-process', previewBlob]
+    ]
+  });
 });
 
 test('preparePageImageProcessing should skip ready image with unchanged source', async () => {
@@ -1211,6 +1309,25 @@ test('applyPageImageProcessingResult should apply ready state and emit success p
         skipped: false,
         processedBlob,
         selectedStrategy: '',
+        processedMeta: {
+          applied: true,
+          selectionDebug: {
+            candidateSource: 'official-nearby-catalog',
+            initialConfig: { logoSize: 96, marginRight: 64, marginBottom: 64 },
+            initialPosition: { x: 608, y: 1216, width: 96, height: 96 },
+            finalConfig: { logoSize: 94, marginRight: 64, marginBottom: 62 },
+            finalPosition: { x: 611, y: 1214, width: 94, height: 94 },
+            texturePenalty: 0.04,
+            tooDark: false,
+            tooFlat: false,
+            hardReject: false,
+            usedCatalogVariant: true,
+            usedSizeJitter: true,
+            usedLocalShift: true,
+            usedAdaptive: false,
+            usedPreviewAnchor: false
+          }
+        },
         candidateDiagnostics: [{ strategy: 'rendered-capture', status: 'insufficient' }],
         candidateDiagnosticsSummary: 'rendered-capture,insufficient'
       },
@@ -1228,6 +1345,8 @@ test('applyPageImageProcessingResult should apply ready state and emit success p
     assert.equal(logs[0][1].strategy, 'preview-candidate');
     assert.equal(logs[0][1].blobType, 'image/png');
     assert.equal(logs[0][1].blobSize, processedBlob.size);
+    assert.equal(logs[0][1].selectionDebug?.candidateSource, 'official-nearby-catalog');
+    assert.equal(logs[0][1].selectionDebug?.usedLocalShift, true);
   });
 });
 

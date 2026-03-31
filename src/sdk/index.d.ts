@@ -58,11 +58,19 @@ export interface WatermarkDetectionMeta {
 
 export interface WatermarkSelectionDebug {
     candidateSource: string | null;
+    initialConfig: WatermarkConfig | null;
+    initialPosition: WatermarkPosition | null;
+    finalConfig: WatermarkConfig | null;
+    finalPosition: WatermarkPosition | null;
     texturePenalty: number | null;
     tooDark: boolean;
     tooFlat: boolean;
     hardReject: boolean;
+    usedCatalogVariant: boolean;
     usedSizeJitter: boolean;
+    usedLocalShift: boolean;
+    usedAdaptive: boolean;
+    usedPreviewAnchor: boolean;
 }
 
 export interface WatermarkMeta {

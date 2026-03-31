@@ -170,7 +170,7 @@ pnpm test
 
 Regression tests include image fixtures from `src/assets/samples/`.
 Source samples stay in git.
-Local `*-fix.*` files are optional snapshot outputs for manual regression checks and are intentionally not tracked by git.
+Local files under `src/assets/samples/fix/` are optional snapshot outputs for manual regression checks and are intentionally not tracked by git.
 
 ## Release Notes
 
@@ -236,6 +236,7 @@ gemini-watermark-remover/
 │   ├── app.js             # Website application entry point
 │   └── i18n.js            # Internationalization utilities
 ├── dist/                  # Build output directory
+├── scripts/               # Local automation and debug launchers
 ├── build.js               # Build script
 └── package.json
 ```

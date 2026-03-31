@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
-import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 
 import { chromium } from 'playwright';
 
@@ -31,10 +31,15 @@ function resolvePathFlavor(filePath) {
 export function buildFixedOutputPath(inputPath) {
     const pathFlavor = resolvePathFlavor(inputPath);
     const parsed = pathFlavor.parse(inputPath);
-    return pathFlavor.join(parsed.dir, `${parsed.name}-fix${parsed.ext}`);
+    if (pathFlavor.basename(parsed.dir).toLowerCase() === 'fix') {
+        return inputPath;
+    }
+
+    return pathFlavor.join(parsed.dir, 'fix', parsed.base);
 }
 
 export async function writeFixedOutput(outputPath, outputBuffer, { overwrite = true } = {}) {
+    await mkdir(path.dirname(outputPath), { recursive: true });
     await writeFile(outputPath, outputBuffer, {
         flag: overwrite ? 'w' : 'wx'
     });
@@ -101,6 +106,15 @@ async function listInputImages(dirPath) {
             return IMAGE_EXTENSIONS.has(ext) && !filePath.toLowerCase().includes('-fix.');
         })
         .sort((a, b) => a.localeCompare(b));
+}
+
+function resolveFixedOutputDir(inputDir) {
+    const resolvedInputDir = path.resolve(inputDir);
+    if (path.basename(resolvedInputDir).toLowerCase() === 'fix') {
+        return resolvedInputDir;
+    }
+
+    return path.join(resolvedInputDir, 'fix');
 }
 
 export async function exportFixedSamples(inputDir, { overwrite = true } = {}) {
@@ -223,7 +237,7 @@ async function runCli() {
         console.log(`${path.basename(item.inputPath)} -> ${path.basename(item.outputPath)} | ${passInfo}`);
     }
 
-    console.log(`exported ${results.length} file(s) to ${inputDir}`);
+    console.log(`exported ${results.length} file(s) to ${resolveFixedOutputDir(inputDir)}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

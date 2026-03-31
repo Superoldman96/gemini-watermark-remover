@@ -11,7 +11,8 @@
 
 ### Open the Fixed Profile
 
-- PowerShell launcher: `.\open-fixed-chrome-profile.ps1`
+- CMD launcher: `.\scripts\open-fixed-chrome-profile.cmd`
+- PowerShell launcher: `.\scripts\open-fixed-chrome-profile.ps1`
 - Node launcher: `node scripts/open-tampermonkey-profile.js --cdp-port 9226`
 
 Default behavior:
@@ -103,21 +104,21 @@ When the user reports "this version became much slower", check these first befor
      - `src/shared/pageImageReplacement.js` now waits for renderability and retries instead of processing immediately
    - If this regresses, inspect the waiting / retry path before changing watermark math
 
-3. `preview-fast` accidentally doing expensive work that is not adopted.
+3. Preview-anchor cleanup accidentally doing expensive work that is not adopted.
    - Symptom:
      - Main thread is busy, but output source does not include a successful `+subpixel`
      - Earlier bad runs showed `subpixelRefinementMs ~= 80ms ~ 115ms` on strong preview samples with no accepted subpixel shift
    - Current fix:
-     - `preview-fast` no longer runs the expensive subpixel refinement path
+     - preview-anchor cleanup no longer runs the expensive subpixel refinement path
      - It relies on cheaper preview edge cleanup instead
    - Rule:
-     - Do not re-enable preview-fast subpixel search unless you have a real fixture that proves the accepted result is both safer and materially better
+     - Do not re-enable preview-anchor subpixel search unless you have a real fixture that proves the accepted result is both safer and materially better
 
 ### Confirmed Quality / Performance Tradeoff
 
 For strong real-page preview samples, the current strategy is:
 
-- Skip expensive preview-fast subpixel refinement
+- Skip expensive preview-anchor subpixel refinement
 - Use stronger preview edge cleanup only when:
   - the image is a preview-anchor style match
   - spatial residual is already low enough to be safe
@@ -126,7 +127,7 @@ For strong real-page preview samples, the current strategy is:
 Why this exists:
 
 - It lowers strong-sample real-page residual gradient from roughly `0.53` to roughly `0.30`
-- It keeps preview-fast latency low by avoiding no-op subpixel sweeps
+- It keeps preview-anchor cleanup latency low by avoiding no-op subpixel sweeps
 - It accepts some spatial drift to stay within a safe residual envelope rather than overfitting and risking content damage
 
 ### Worker Debug Flow

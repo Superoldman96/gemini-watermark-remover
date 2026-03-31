@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 export const DEFAULT_CLEAN_PATHS = [
   'dist',
   '.artifacts',
-  'src/assets/samples/*-fix.*'
+  'src/assets/samples/fix'
 ];
 
 export const OPTIONAL_CLEAN_PATHS = ['.chrome-debug'];

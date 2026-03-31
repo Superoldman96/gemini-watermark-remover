@@ -279,7 +279,6 @@ export async function runRealPagePixelCompare({
       alpha48,
       alpha96,
       adaptiveMode: 'never',
-      processingProfile: 'preview-fast',
       debugTimings: true,
       getAlphaMap: (size) => interpolateAlphaMap(alpha96, 96, size)
     });

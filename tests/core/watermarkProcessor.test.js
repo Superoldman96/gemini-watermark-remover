@@ -268,7 +268,7 @@ test('processWatermarkImageData should recover preview-sized bottom-right waterm
     );
 });
 
-test('processWatermarkImageData should default preview-fast profile to a single pass', () => {
+test('processWatermarkImageData should keep preview-anchor removals to a single pass by default', () => {
     const alpha96 = createSyntheticAlphaMap(96);
     const alpha48 = interpolateAlphaMap(alpha96, 96, 48);
     const alpha34 = interpolateAlphaMap(alpha96, 96, 34);
@@ -285,7 +285,6 @@ test('processWatermarkImageData should default preview-fast profile to a single 
         alpha48,
         alpha96,
         adaptiveMode: 'never',
-        processingProfile: 'preview-fast',
         getAlphaMap: (size) => interpolateAlphaMap(alpha96, 96, size)
     });
 
@@ -294,7 +293,7 @@ test('processWatermarkImageData should default preview-fast profile to a single 
     assert.equal(result.meta.attemptedPassCount, 1, `attemptedPassCount=${result.meta.attemptedPassCount}`);
     assert.ok(
         !String(result.meta.source).includes('+multipass'),
-        `expected preview-fast profile to skip multipass, source=${result.meta.source}`
+        `expected preview-anchor removal to skip multipass, source=${result.meta.source}`
     );
 });
 
@@ -326,6 +325,37 @@ test('processWatermarkImageData should expose candidate selection debug summary 
     assert.equal(typeof result.meta.selectionDebug.tooDark, 'boolean');
     assert.equal(typeof result.meta.selectionDebug.tooFlat, 'boolean');
     assert.equal(typeof result.meta.selectionDebug.hardReject, 'boolean');
+    assert.deepEqual(result.meta.selectionDebug.initialConfig, { logoSize: 48, marginRight: 32, marginBottom: 32 });
+    assert.deepEqual(result.meta.selectionDebug.initialPosition, { x: 240, y: 240, width: 48, height: 48 });
+    assert.deepEqual(result.meta.selectionDebug.finalConfig, result.meta.config);
+    assert.deepEqual(result.meta.selectionDebug.finalPosition, result.meta.position);
+});
+
+test('processWatermarkImageData should expose local shift provenance for tall portrait anchor recovery', () => {
+    const alpha96 = createSyntheticAlphaMap(96);
+    const alpha48 = interpolateAlphaMap(alpha96, 96, 48);
+    const imageData = createPatternImageData(768, 1376);
+    const truePosition = {
+        x: 768 - 59 - 96,
+        y: 1376 - 59 - 96,
+        width: 96,
+        height: 96
+    };
+    applySyntheticWatermark(imageData, alpha96, truePosition, 1);
+
+    const result = processWatermarkImageData(imageData, {
+        alpha48,
+        alpha96,
+        adaptiveMode: 'never',
+        maxPasses: 1
+    });
+
+    assert.ok(result.meta.applied, `skipReason=${result.meta.skipReason}`);
+    assert.equal(result.meta.selectionDebug?.usedLocalShift, true);
+    assert.equal(result.meta.selectionDebug?.usedCatalogVariant, false);
+    assert.deepEqual(result.meta.selectionDebug?.initialConfig, { logoSize: 96, marginRight: 64, marginBottom: 64 });
+    assert.deepEqual(result.meta.selectionDebug?.initialPosition, { x: 608, y: 1216, width: 96, height: 96 });
+    assert.deepEqual(result.meta.selectionDebug?.finalPosition, result.meta.position);
 });
 
 test('processWatermarkImageData should expose normalized decision tier alongside legacy source tags', () => {
@@ -388,7 +418,6 @@ test('processWatermarkImageData should expose stage timings when debugTimings is
         alpha48,
         alpha96,
         adaptiveMode: 'never',
-        processingProfile: 'preview-fast',
         debugTimings: true,
         getAlphaMap: (size) => interpolateAlphaMap(alpha96, 96, size)
     });

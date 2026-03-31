@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
     assessReferenceTextureAlignment,
     evaluateRestorationCandidate,
+    pickBetterCandidate,
     selectInitialCandidate
 } from '../../src/core/candidateSelector.js';
 import { interpolateAlphaMap, warpAlphaMap } from '../../src/core/adaptiveDetector.js';
@@ -168,6 +169,56 @@ test('evaluateRestorationCandidate should support scoring without materializing 
     assert.equal(scoreOnlyCandidate.validationCost, fullCandidate.validationCost);
 });
 
+test('pickBetterCandidate should keep the default anchor when a local shift loses strong original watermark evidence', () => {
+    const defaultAnchorCandidate = {
+        accepted: true,
+        source: 'standard+validated',
+        provenance: null,
+        validationCost: 0.3265185265738402,
+        improvement: 0.5431154601023849,
+        originalSpatialScore: 0.29710616867610046,
+        originalGradientScore: 0.4998777626082937
+    };
+    const driftedLocalShiftCandidate = {
+        accepted: true,
+        source: 'standard+local+validated',
+        provenance: { localShift: true },
+        validationCost: 0.06597234178943942,
+        improvement: 0.19065682410462825,
+        originalSpatialScore: 0.17313940579433085,
+        originalGradientScore: -0.0250843744728948
+    };
+
+    const selected = pickBetterCandidate(defaultAnchorCandidate, driftedLocalShiftCandidate, 0.002);
+
+    assert.equal(selected, defaultAnchorCandidate);
+});
+
+test('pickBetterCandidate should still allow a local shift when the default anchor lacks strong evidence', () => {
+    const defaultAnchorCandidate = {
+        accepted: true,
+        source: 'standard+validated',
+        provenance: null,
+        validationCost: 0.4040296852241377,
+        improvement: 0.9692938044339201,
+        originalSpatialScore: 0.751216569797702,
+        originalGradientScore: -0.12768919590607608
+    };
+    const recoveredLocalShiftCandidate = {
+        accepted: true,
+        source: 'standard+local+validated',
+        provenance: { localShift: true },
+        validationCost: 0.03650774301387135,
+        improvement: 0.8620228530471932,
+        originalSpatialScore: 0.8669310438820185,
+        originalGradientScore: -0.10895911933638856
+    };
+
+    const selected = pickBetterCandidate(defaultAnchorCandidate, recoveredLocalShiftCandidate, 0.002);
+
+    assert.equal(selected, recoveredLocalShiftCandidate);
+});
+
 test('assessReferenceTextureAlignment should mark a candidate unsafe when it is both darker and flatter than the local reference', () => {
     const width = 96;
     const height = 96;
@@ -289,7 +340,7 @@ test('selectInitialCandidate should skip expensive size-jitter search when the s
     assert.ok(result.source.startsWith('standard'), `source=${result.source}`);
 });
 
-test('selectInitialCandidate should reuse interpolated alpha maps across preview-fast anchor refinement', () => {
+test('selectInitialCandidate should reuse interpolated alpha maps across preview-anchor refinement', () => {
     const alpha96 = createSyntheticAlphaMap(96);
     const alpha48 = interpolateAlphaMap(alpha96, 96, 48);
     const imageData = createPatternImageData(1024, 559);
@@ -329,20 +380,19 @@ test('selectInitialCandidate should reuse interpolated alpha maps across preview
             return interpolateAlphaMap(alpha96, 96, size);
         },
         allowAdaptiveSearch: false,
-        alphaGainCandidates: [1.04, 1.12, 1.22, 1.34],
-        searchProfile: 'preview-fast'
+        alphaGainCandidates: [1.04, 1.12, 1.22, 1.34]
     });
 
-    assert.ok(result.selectedTrial, 'expected preview-fast candidate to be selected');
+    assert.ok(result.selectedTrial, 'expected preview-anchor candidate to be selected');
     assert.ok(result.source.startsWith('standard+preview-anchor'), `source=${result.source}`);
     assert.equal(
         requestedSizes.length,
         new Set(requestedSizes).size,
-        `expected preview-fast alpha map requests to be cached by size, got ${JSON.stringify(requestedSizes)}`
+        `expected preview-anchor alpha map requests to be cached by size, got ${JSON.stringify(requestedSizes)}`
     );
 });
 
-test('selectInitialCandidate should skip preview-fast gain search when preview anchor is already clean enough', () => {
+test('selectInitialCandidate should skip preview-anchor gain search when the candidate is already clean enough', () => {
     const alpha96 = createSyntheticAlphaMap(96);
     const alpha48 = interpolateAlphaMap(alpha96, 96, 48);
     const imageData = createPatternImageData(1024, 559);
@@ -378,15 +428,14 @@ test('selectInitialCandidate should skip preview-fast gain search when preview a
         alpha96,
         getAlphaMap: (size) => interpolateAlphaMap(alpha96, 96, size),
         allowAdaptiveSearch: false,
-        alphaGainCandidates: [1.04, 1.12, 1.22, 1.34],
-        searchProfile: 'preview-fast'
+        alphaGainCandidates: [1.04, 1.12, 1.22, 1.34]
     });
 
-    assert.ok(result.selectedTrial, 'expected preview-fast candidate to be selected');
+    assert.ok(result.selectedTrial, 'expected preview-anchor candidate to be selected');
     assert.equal(result.alphaGain, 1, `expected no extra gain search, alphaGain=${result.alphaGain}`);
     assert.ok(
         !String(result.source).includes('+gain'),
-        `expected preview-fast to skip gain sweep for already-clean preview anchor, source=${result.source}`
+        `expected preview-anchor path to skip gain sweep for an already-clean candidate, source=${result.source}`
     );
 });
 

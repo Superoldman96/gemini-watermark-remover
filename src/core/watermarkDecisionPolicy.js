@@ -3,6 +3,8 @@
 // diverge across modules.
 const STANDARD_DIRECT_MATCH_MIN_SPATIAL_SCORE = 0.3;
 const STANDARD_DIRECT_MATCH_MIN_GRADIENT_SCORE = 0.12;
+const STANDARD_STRONG_GRADIENT_DIRECT_MATCH_MIN_SPATIAL_SCORE = 0.295;
+const STANDARD_STRONG_GRADIENT_DIRECT_MATCH_MIN_GRADIENT_SCORE = 0.45;
 
 const ADAPTIVE_DIRECT_MATCH_MIN_CONFIDENCE = 0.5;
 const ADAPTIVE_DIRECT_MATCH_MIN_SPATIAL_SCORE = 0.45;
@@ -39,8 +41,14 @@ export function classifyStandardWatermarkSignal({ spatialScore, gradientScore })
     }
 
     if (
-        spatial >= STANDARD_DIRECT_MATCH_MIN_SPATIAL_SCORE &&
-        gradient >= STANDARD_DIRECT_MATCH_MIN_GRADIENT_SCORE
+        (
+            spatial >= STANDARD_DIRECT_MATCH_MIN_SPATIAL_SCORE &&
+            gradient >= STANDARD_DIRECT_MATCH_MIN_GRADIENT_SCORE
+        ) ||
+        (
+            spatial >= STANDARD_STRONG_GRADIENT_DIRECT_MATCH_MIN_SPATIAL_SCORE &&
+            gradient >= STANDARD_STRONG_GRADIENT_DIRECT_MATCH_MIN_GRADIENT_SCORE
+        )
     ) {
         return { tier: 'direct-match' };
     }

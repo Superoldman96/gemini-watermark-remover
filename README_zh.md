@@ -210,7 +210,7 @@ pnpm test
 
 回归测试会使用 `src/assets/samples/` 下的源样本。
 源样本文件应保留在 git 中。
-本地生成的 `*-fix.*` 只是人工回归快照，不进入 git，也不作为 CI 必须存在的基线。
+本地生成到 `src/assets/samples/fix/` 下的文件只是人工回归快照，不进入 git，也不作为 CI 必须存在的基线。
 
 ## 发版说明
 
@@ -236,6 +236,7 @@ gemini-watermark-remover/
 │   ├── app.js             # 网站应用入口
 │   └── i18n.js            # 国际化工具
 ├── dist/                  # 构建输出目录
+├── scripts/               # 本地自动化与调试启动脚本
 ├── build.js               # 构建脚本
 └── package.json
 ```

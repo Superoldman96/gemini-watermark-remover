@@ -189,6 +189,7 @@ export function createUserscriptProcessingRuntime({
       const totalMs = nowMs() - startedAt;
       const engineStageTimings = canvas?.__watermarkTiming ?? null;
       const processorTimings = engineStageTimings?.processor ?? null;
+      const selectionDebug = canvas?.__watermarkMeta?.selectionDebug ?? null;
       emitTiming('process-blob-main-thread', {
         sourceBlobType: blob?.type || '',
         sourceBlobSize: blob?.size || 0,
@@ -201,7 +202,6 @@ export function createUserscriptProcessingRuntime({
         totalMs,
         adaptiveMode: options?.adaptiveMode || '',
         maxPasses: options?.maxPasses ?? null,
-        processingProfile: options?.processingProfile || '',
         engineStageTimings,
         engineDrawMs: engineStageTimings?.drawMs ?? null,
         engineGetImageDataMs: engineStageTimings?.getImageDataMs ?? null,
@@ -214,7 +214,8 @@ export function createUserscriptProcessingRuntime({
         processorRecalibrationMs: processorTimings?.recalibrationMs ?? null,
         processorSubpixelRefinementMs: processorTimings?.subpixelRefinementMs ?? null,
         processorPreviewEdgeCleanupMs: processorTimings?.previewEdgeCleanupMs ?? null,
-        processorTotalMs: processorTimings?.totalMs ?? null
+        processorTotalMs: processorTimings?.totalMs ?? null,
+        selectionDebug
       });
       return {
         processedBlob,

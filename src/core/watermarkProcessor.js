@@ -26,9 +26,6 @@ const OUTLINE_REFINEMENT_MIN_GAIN = 1.2;
 const SUBPIXEL_REFINE_SHIFTS = [-0.25, 0, 0.25];
 const SUBPIXEL_REFINE_SCALES = [0.99, 1, 1.01];
 const ALPHA_GAIN_CANDIDATES = [1.05, 1.12, 1.2, 1.28, 1.36, 1.45, 1.52, 1.6, 1.7, 1.85, 2.0, 2.2, 2.4, 2.6];
-const PREVIEW_FAST_ALPHA_GAIN_CANDIDATES = [1.04, 1.12, 1.22, 1.34];
-const PREVIEW_FAST_SUBPIXEL_REFINE_SHIFTS = [-0.5, -0.25, 0, 0.25, 0.5];
-const PREVIEW_FAST_SUBPIXEL_REFINE_SCALES = [0.985, 1, 1.015];
 const PREVIEW_EDGE_CLEANUP_MAX_SIZE = 40;
 const PREVIEW_EDGE_CLEANUP_SPATIAL_THRESHOLD = 0.08;
 const PREVIEW_EDGE_CLEANUP_GRADIENT_THRESHOLD = 0.24;
@@ -353,6 +350,12 @@ function shouldRefinePreviewResidualEdge({
         baselineGradientScore >= PREVIEW_EDGE_CLEANUP_GRADIENT_THRESHOLD;
 }
 
+function shouldUsePreviewAnchorFastCleanup(selectedTrial, position) {
+    return selectedTrial?.provenance?.previewAnchor === true &&
+        position?.width >= 24 &&
+        position?.width <= PREVIEW_EDGE_CLEANUP_MAX_SIZE;
+}
+
 function blendPreviewResidualEdge({
     sourceImageData,
     alphaMap,
@@ -496,37 +499,13 @@ export function processWatermarkImageData(imageData, options = {}) {
     const totalStartedAt = nowMs();
     const debugTimingsEnabled = options.debugTimings === true;
     const debugTimings = debugTimingsEnabled ? {} : null;
-    const processingProfile = options.processingProfile === 'preview-fast'
-        ? 'preview-fast'
-        : 'default';
     const adaptiveMode = options.adaptiveMode || 'auto';
     const allowAdaptiveSearch =
-        processingProfile !== 'preview-fast' &&
         adaptiveMode !== 'never' &&
         adaptiveMode !== 'off';
     const originalImageData = cloneImageData(imageData);
     const { alpha48, alpha96 } = options;
-    const alphaGainCandidates = processingProfile === 'preview-fast'
-        ? PREVIEW_FAST_ALPHA_GAIN_CANDIDATES
-        : ALPHA_GAIN_CANDIDATES;
-    const outlineRefinementThreshold = processingProfile === 'preview-fast'
-        ? 0.24
-        : OUTLINE_REFINEMENT_THRESHOLD;
-    const outlineRefinementMinGain = processingProfile === 'preview-fast'
-        ? 1
-        : OUTLINE_REFINEMENT_MIN_GAIN;
-    const outlineRefinementShiftCandidates = processingProfile === 'preview-fast'
-        ? PREVIEW_FAST_SUBPIXEL_REFINE_SHIFTS
-        : SUBPIXEL_REFINE_SHIFTS;
-    const outlineRefinementScaleCandidates = processingProfile === 'preview-fast'
-        ? PREVIEW_FAST_SUBPIXEL_REFINE_SCALES
-        : SUBPIXEL_REFINE_SCALES;
-    const outlineRefinementMinGradientImprovement = processingProfile === 'preview-fast'
-        ? 0.015
-        : 0.04;
-    const outlineRefinementMaxSpatialDrift = processingProfile === 'preview-fast'
-        ? 0.1
-        : 0.08;
+    const alphaGainCandidates = ALPHA_GAIN_CANDIDATES;
 
     if (!alpha48 || !alpha96) {
         throw new Error('processWatermarkImageData requires alpha48 and alpha96');
@@ -563,8 +542,7 @@ export function processWatermarkImageData(imageData, options = {}) {
         alpha96,
         getAlphaMap: options.getAlphaMap,
         allowAdaptiveSearch,
-        alphaGainCandidates,
-        searchProfile: processingProfile
+        alphaGainCandidates
     });
     if (debugTimingsEnabled) {
         debugTimings.initialSelectionMs = nowMs() - initialSelectionStartedAt;
@@ -604,6 +582,7 @@ export function processWatermarkImageData(imageData, options = {}) {
     decisionTier = initialSelection.decisionTier;
 
     const selectedTrial = initialSelection.selectedTrial;
+    const usePreviewAnchorFastCleanup = shouldUsePreviewAnchorFastCleanup(selectedTrial, position);
 
     let finalImageData = selectedTrial.imageData;
 
@@ -638,7 +617,7 @@ export function processWatermarkImageData(imageData, options = {}) {
 
     const totalMaxPasses = Math.max(
         1,
-        options.maxPasses ?? (processingProfile === 'preview-fast' ? 1 : 4)
+        options.maxPasses ?? 4
     );
     const remainingPasses = Math.max(0, totalMaxPasses - 1);
     const firstPassClearedResidual = shouldStopAfterFirstPass({
@@ -697,7 +676,7 @@ export function processWatermarkImageData(imageData, options = {}) {
     let suppressionGain = originalSpatialScore - finalProcessedSpatialScore;
 
     const recalibrationStartedAt = nowMs();
-    if (processingProfile !== 'preview-fast' && shouldRecalibrateAlphaStrength({
+    if (shouldRecalibrateAlphaStrength({
         originalScore: originalSpatialScore,
         processedScore: finalProcessedSpatialScore,
         suppressionGain
@@ -743,7 +722,7 @@ export function processWatermarkImageData(imageData, options = {}) {
             source,
             baselineSpatialScore: finalProcessedSpatialScore,
             baselineGradientScore: finalProcessedGradientScore,
-            allowAggressivePresets: processingProfile === 'preview-fast'
+            allowAggressivePresets: usePreviewAnchorFastCleanup
         });
         previewEdgeCleanupElapsedMs += nowMs() - previewEdgeStartedAt;
 
@@ -759,15 +738,15 @@ export function processWatermarkImageData(imageData, options = {}) {
         return true;
     };
 
-    if (processingProfile === 'preview-fast') {
+    if (usePreviewAnchorFastCleanup) {
         applyPreviewEdgeCleanup();
     }
 
     const subpixelStartedAt = nowMs();
     if (
-        processingProfile !== 'preview-fast' &&
+        !usePreviewAnchorFastCleanup &&
         finalProcessedSpatialScore <= 0.3 &&
-        finalProcessedGradientScore >= outlineRefinementThreshold
+        finalProcessedGradientScore >= OUTLINE_REFINEMENT_THRESHOLD
     ) {
         const originalNearBlackRatio = calculateNearBlackRatio(finalImageData, position);
         const baselineShift = templateWarp ?? { dx: 0, dy: 0, scale: 1 };
@@ -780,11 +759,11 @@ export function processWatermarkImageData(imageData, options = {}) {
             baselineSpatialScore: finalProcessedSpatialScore,
             baselineGradientScore: finalProcessedGradientScore,
             baselineShift,
-            minGain: outlineRefinementMinGain,
-            shiftCandidates: outlineRefinementShiftCandidates,
-            scaleCandidates: outlineRefinementScaleCandidates,
-            minGradientImprovement: outlineRefinementMinGradientImprovement,
-            maxSpatialDrift: outlineRefinementMaxSpatialDrift
+            minGain: OUTLINE_REFINEMENT_MIN_GAIN,
+            shiftCandidates: SUBPIXEL_REFINE_SHIFTS,
+            scaleCandidates: SUBPIXEL_REFINE_SCALES,
+            minGradientImprovement: 0.04,
+            maxSpatialDrift: 0.08
         });
 
         if (refined) {
@@ -831,7 +810,13 @@ export function processWatermarkImageData(imageData, options = {}) {
             subpixelShift,
             selectionDebug: createSelectionDebugSummary({
                 selectedTrial,
-                selectionSource: initialSelection.source
+                selectionSource: initialSelection.source,
+                initialConfig: resolvedConfig,
+                initialPosition: calculateWatermarkPosition(
+                    originalImageData.width,
+                    originalImageData.height,
+                    resolvedConfig
+                )
             })
         }),
         debugTimings

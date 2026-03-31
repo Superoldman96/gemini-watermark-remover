@@ -17,10 +17,10 @@ test('WatermarkEngine should be importable in Node and expose embedded alpha map
     assert.ok(alpha96.some((value) => value > 0), 'expected embedded alpha96 to contain non-zero values');
 });
 
-test('WatermarkEngine should forward processingProfile to core processing', () => {
+test('WatermarkEngine should not forward removed processingProfile plumbing to core processing', () => {
     const source = loadModuleSource('../../src/core/watermarkEngine.js', import.meta.url);
 
-    assert.match(
+    assert.doesNotMatch(
         normalizeWhitespace(source),
         /processWatermarkImageData\(originalImageData,\s*\{[^}]*processingProfile:\s*options\.processingProfile/
     );

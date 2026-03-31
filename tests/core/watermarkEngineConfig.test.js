@@ -128,3 +128,52 @@ test('resolveInitialStandardConfig should promote near-official portrait preview
 
     assert.deepEqual(resolved, trueConfig);
 });
+
+test('resolveInitialStandardConfig should keep the official config for exact official Gemini dimensions', () => {
+    const imageData = createImageData(768, 1376, 16);
+    const alpha48 = createSyntheticAlpha(48);
+    const alpha96 = createSyntheticAlpha(96);
+
+    const officialConfig = detectWatermarkConfig(imageData.width, imageData.height);
+    assert.deepEqual(officialConfig, { logoSize: 96, marginRight: 64, marginBottom: 64 });
+
+    applyWatermark(
+        imageData,
+        alpha96,
+        calculateWatermarkPosition(imageData.width, imageData.height, officialConfig)
+    );
+
+    const resolved = resolveInitialStandardConfig({
+        imageData,
+        defaultConfig: officialConfig,
+        alpha48,
+        alpha96
+    });
+
+    assert.deepEqual(resolved, officialConfig);
+});
+
+test('resolveInitialStandardConfig should allow exact official dimensions to fall back to 48 when evidence is materially stronger', () => {
+    const imageData = createImageData(1024, 1024, 16);
+    const alpha48 = createSyntheticAlpha(48);
+    const alpha96 = createSyntheticAlpha(96);
+    const officialConfig = detectWatermarkConfig(imageData.width, imageData.height);
+
+    assert.deepEqual(officialConfig, { logoSize: 96, marginRight: 64, marginBottom: 64 });
+
+    const strong48Config = { logoSize: 48, marginRight: 32, marginBottom: 32 };
+    applyWatermark(
+        imageData,
+        alpha48,
+        calculateWatermarkPosition(imageData.width, imageData.height, strong48Config)
+    );
+
+    const resolved = resolveInitialStandardConfig({
+        imageData,
+        defaultConfig: officialConfig,
+        alpha48,
+        alpha96
+    });
+
+    assert.deepEqual(resolved, strong48Config);
+});

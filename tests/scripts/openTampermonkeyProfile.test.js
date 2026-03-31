@@ -58,22 +58,22 @@ test('package.json should expose a manual fixed-profile launcher', () => {
   assert.equal(pkg.scripts['probe:tm:profile'], 'node scripts/open-tampermonkey-profile.js');
 });
 
-test('project root should expose a fixed-profile launcher cmd script', () => {
-  const scriptPath = new URL('../../open-fixed-chrome-profile.cmd', import.meta.url);
+test('scripts directory should expose a fixed-profile launcher cmd script', () => {
+  const scriptPath = new URL('../../scripts/open-fixed-chrome-profile.cmd', import.meta.url);
   assert.equal(existsSync(scriptPath), true);
 
   const source = readFileSync(scriptPath, 'utf8');
-  assert.match(source, /scripts\\open-tampermonkey-profile\.js/);
+  assert.match(source, /open-tampermonkey-profile\.js/);
   assert.match(source, /tampermonkey-worker-probe\.html/);
   assert.match(source, /--cdp-port/);
 });
 
-test('project root should expose a fixed-profile launcher powershell script', () => {
-  const scriptPath = new URL('../../open-fixed-chrome-profile.ps1', import.meta.url);
+test('scripts directory should expose a fixed-profile launcher powershell script', () => {
+  const scriptPath = new URL('../../scripts/open-fixed-chrome-profile.ps1', import.meta.url);
   assert.equal(existsSync(scriptPath), true);
 
   const source = readFileSync(scriptPath, 'utf8');
-  assert.match(source, /scripts\/open-tampermonkey-profile\.js|scripts\\open-tampermonkey-profile\.js/);
+  assert.match(source, /open-tampermonkey-profile\.js/);
   assert.match(source, /tampermonkey-worker-probe\.html/);
   assert.match(source, /--cdp-port/);
 });

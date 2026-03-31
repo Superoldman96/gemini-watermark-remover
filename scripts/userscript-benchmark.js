@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
 
 const SUPPORTED_SCENARIOS = Object.freeze(['main-thread', 'inline-worker']);
-const DEFAULT_SAMPLE_NAMES = Object.freeze(['4.png', '6.png', 'large2.png']);
+const DEFAULT_SAMPLE_NAMES = Object.freeze(['16-9.png', '2-3.png', '9-16.png']);
 const DEFAULT_USERSCRIPT_PATH = path.resolve('dist/userscript/gemini-watermark-remover.user.js');
 const DEFAULT_SAMPLE_DIR = path.resolve('src/assets/samples');
 const DEFAULT_OUTPUT_PATH = path.resolve('.artifacts/userscript-benchmark/latest.json');
