@@ -12,9 +12,6 @@ import { canvasToBlob } from './core/canvasBlob.js';
 import i18n from './i18n.js';
 import {
     loadImage,
-    checkOriginal,
-    getOriginalStatus,
-    resolveOriginalValidation,
     setStatusMessage,
     showLoading,
     hideLoading
@@ -214,7 +211,6 @@ function handleFiles(files) {
         file,
         name: file.name,
         status: 'pending',
-        validation: null,
         originalImg: null,
         processedMeta: null,
         processedBlob: null,
@@ -311,10 +307,6 @@ function renderImageCardStatus(item) {
     }
     html += `<p>${i18n.t('info.status')}: ${getProcessedStatusLabel(item)}</p>`;
 
-    if (item.validation && !item.validation.is_google) {
-        html += `<p class="inline-block mt-1 text-xs md:text-sm text-warn">${getOriginalStatus(item.validation)}</p>`;
-    }
-
     updateStatus(item.id, html, true);
 }
 
@@ -323,20 +315,11 @@ async function processSingle(item) {
         const img = await loadImage(item.file);
         item.originalImg = img;
 
-        const validation = await checkOriginal(item.file);
-        item.validation = validation;
-        const status = getOriginalStatus(validation);
-        setStatusMessage(status, validation.is_google ? 'success' : 'warn');
-
         originalImage.src = img.src;
         renderSingleImageMeta(item);
 
         const processed = await processImageWithBestPath(item.file, img);
         item.processedMeta = processed.meta;
-        item.validation = resolveOriginalValidation(item.validation, item.processedMeta);
-        const resolvedStatus = getOriginalStatus(item.validation);
-        setStatusMessage(resolvedStatus, item.validation.is_google ? 'success' : 'warn');
-
         renderSingleImageMeta(item);
         item.processedBlob = processed.blob;
 
@@ -435,11 +418,6 @@ async function processQueue() {
 
                 processedCount++;
                 updateProgress();
-
-                checkOriginal(item.file).then((validation) => {
-                    item.validation = resolveOriginalValidation(validation, item.processedMeta);
-                    renderImageCardStatus(item);
-                }).catch(() => { });
             } catch (error) {
                 item.status = 'error';
                 renderImageCardStatus(item);
@@ -496,11 +474,6 @@ function updateDynamicTexts() {
 
         if (item?.processedBlob) {
             renderSingleProcessedMeta(item);
-        }
-
-        if (item?.validation) {
-            const status = getOriginalStatus(item.validation);
-            setStatusMessage(status, item.validation.is_google ? 'success' : 'warn');
         }
     }
 }

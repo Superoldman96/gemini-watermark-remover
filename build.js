@@ -148,7 +148,10 @@ async function serveStaticDevDist(rootDir = 'dist', defaultPort = 4173) {
     }
 
     const ext = extname(targetPath).toLowerCase();
-    res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' });
+    res.writeHead(200, {
+      'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
+      'Cache-Control': 'no-store'
+    });
     createReadStream(targetPath).pipe(res);
   });
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.0.9 - 2026-03-31
+
+### Userscript
+
+- Removed Gemini-original source confirmation from the local app flow and now rely on the user to decide whether the input should be processed.
+- Simplified local status messaging so skipped cases are described as "no removable watermark detected" instead of claiming Gemini-specific source knowledge.
+- Removed the unused `exifr` dependency after deleting the abandoned original-source validation path.
+
+### Tooling
+
+- Disabled browser caching for the local dev static server so `http://127.0.0.1:4173/` is less likely to keep serving stale bundles during watermark validation work.
+
+### Quality
+
+- Added regression coverage to ensure the app no longer imports Gemini original-source validation helpers and locale files no longer ship the removed origin-confirmation copy.
+- Re-verified the release with a fresh full test run, sample benchmark, and production build.
+
 ## 1.0.8 - 2026-03-31
 
 ### Userscript

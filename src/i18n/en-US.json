@@ -46,8 +46,5 @@
   "info.position": "Position",
   "info.status": "Status",
   "info.removed": "Watermark Removed",
-  "info.skipped": "No Gemini watermark detected; original kept",
-  "original.not_gemini": "⚠️ This image is not confirmed to be a Gemini original.",
-  "original.unconfirmed": "⚠️ Gemini origin is not confirmed. Lossless processing may be unavailable.",
-  "original.pass": "✅ Processed with Gemini watermark matching rules. Lossless path is available."
+  "info.skipped": "No removable watermark detected; original kept"
 }

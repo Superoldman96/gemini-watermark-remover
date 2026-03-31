@@ -46,8 +46,5 @@
   "info.position": "位置",
   "info.status": "状态",
   "info.removed": "水印已移除",
-  "info.skipped": "未检测到 Gemini 水印，已保留原图",
-  "original.not_gemini": "⚠️ 此图片未被确认为 Gemini 原图",
-  "original.unconfirmed": "⚠️ 未确认此图片是 Gemini 原图，可能无法保证无损去水印",
-  "original.pass": "✅ 已按 Gemini 水印规则完成处理，可进行无损去水印"
+  "info.skipped": "未检测到可移除水印，已保留原图"
 }
