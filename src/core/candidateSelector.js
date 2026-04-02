@@ -19,7 +19,10 @@ import {
     hasReliableAdaptiveWatermarkSignal,
     hasReliableStandardWatermarkSignal
 } from './watermarkPresence.js';
-import { resolveGeminiWatermarkSearchConfigs } from './geminiSizeCatalog.js';
+import {
+    matchOfficialGeminiImageSize,
+    resolveGeminiWatermarkSearchConfigs
+} from './geminiSizeCatalog.js';
 
 const MAX_NEAR_BLACK_RATIO_INCREASE = 0.05;
 const VALIDATION_MIN_IMPROVEMENT = 0.08;
@@ -337,6 +340,12 @@ export function pickBetterCandidate(currentBest, candidate, minCostDelta = 0.005
     if (shouldPreserveStrongStandardAnchor(currentBest, candidate)) {
         return currentBest;
     }
+    if (shouldPreferPreviewAnchorCandidate(currentBest, candidate)) {
+        return candidate;
+    }
+    if (shouldPreferPreviewAnchorCandidate(candidate, currentBest)) {
+        return currentBest;
+    }
     if (candidate.validationCost < currentBest.validationCost - minCostDelta) {
         return candidate;
     }
@@ -373,6 +382,54 @@ function shouldPreserveStrongStandardAnchor(currentBest, candidate) {
     return baseGradient >= STANDARD_LOCAL_SHIFT_STRONG_BASE_GRADIENT_SCORE &&
         candidateGradient < STANDARD_LOCAL_SHIFT_WEAK_CANDIDATE_GRADIENT_SCORE &&
         validationAdvantage < STANDARD_LOCAL_SHIFT_MIN_VALIDATION_ADVANTAGE;
+}
+
+function isPreviewAnchorSearchEligible(originalImageData, config) {
+    if (!config || config.logoSize !== 48) return false;
+
+    const width = Number(originalImageData?.width);
+    const height = Number(originalImageData?.height);
+    if (!Number.isFinite(width) || !Number.isFinite(height)) return false;
+    if (width < 384 || width > 1536) return false;
+    if (height < 384 || height > 1536) return false;
+    if (Math.max(width, height) < 512) return false;
+
+    return matchOfficialGeminiImageSize(width, height) === null;
+}
+
+function shouldPreferPreviewAnchorCandidate(currentBest, candidate) {
+    if (candidate?.provenance?.previewAnchor !== true) return false;
+    if (!currentBest || currentBest?.provenance?.previewAnchor === true) return false;
+
+    const currentSpatial = Number(currentBest.originalSpatialScore);
+    const currentGradient = Number(currentBest.originalGradientScore);
+    const candidateSpatial = Number(candidate.originalSpatialScore);
+    const candidateGradient = Number(candidate.originalGradientScore);
+
+    if (
+        !Number.isFinite(currentSpatial) ||
+        !Number.isFinite(currentGradient) ||
+        !Number.isFinite(candidateSpatial) ||
+        !Number.isFinite(candidateGradient)
+    ) {
+        return false;
+    }
+
+    const currentReliable = hasReliableStandardWatermarkSignal({
+        spatialScore: currentSpatial,
+        gradientScore: currentGradient
+    });
+    const candidateReliable = hasReliableStandardWatermarkSignal({
+        spatialScore: candidateSpatial,
+        gradientScore: candidateGradient
+    });
+
+    if (candidateReliable && !currentReliable) {
+        return true;
+    }
+
+    return candidateGradient >= currentGradient + 0.2 &&
+        candidateSpatial >= currentSpatial + 0.05;
 }
 
 export function findBestTemplateWarp({
@@ -556,9 +613,7 @@ function searchBottomRightPreviewCandidate({
     resolveAlphaMap = null,
     adaptiveConfidence = null
 }) {
-    if (!config || config.logoSize !== 48) return null;
-    if (originalImageData.width < 512 || originalImageData.width > 1536) return null;
-    if (originalImageData.height < 256 || originalImageData.height > 900) return null;
+    if (!isPreviewAnchorSearchEligible(originalImageData, config)) return null;
 
     const minSize = Math.max(
         PREVIEW_ANCHOR_MIN_SIZE,
@@ -852,21 +907,22 @@ export function selectInitialCandidate({
         }
     }
 
-    if (!baseCandidate) {
-        const previewAnchorCandidate = searchBottomRightPreviewCandidate({
-            originalImageData,
-            config,
-            alpha48,
-            alpha96,
-            getAlphaMap,
-            resolveAlphaMap,
-            adaptiveConfidence
-        });
-        if (previewAnchorCandidate) {
-            baseCandidate = {
-                ...previewAnchorCandidate,
-                source: `${previewAnchorCandidate.source}+validated`
-            };
+    const previewAnchorCandidate = searchBottomRightPreviewCandidate({
+        originalImageData,
+        config,
+        alpha48,
+        alpha96,
+        getAlphaMap,
+        resolveAlphaMap,
+        adaptiveConfidence
+    });
+    if (previewAnchorCandidate) {
+        const previousCandidate = baseCandidate;
+        baseCandidate = pickBetterCandidate(baseCandidate, {
+            ...previewAnchorCandidate,
+            source: `${previewAnchorCandidate.source}+validated`
+        }, 0.002);
+        if (baseCandidate !== previousCandidate && baseCandidate) {
             baseDecisionTier = 'validated-match';
         }
     }

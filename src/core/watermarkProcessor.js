@@ -583,6 +583,7 @@ export function processWatermarkImageData(imageData, options = {}) {
 
     const selectedTrial = initialSelection.selectedTrial;
     const usePreviewAnchorFastCleanup = shouldUsePreviewAnchorFastCleanup(selectedTrial, position);
+    const skipPreviewAnchorMultiPass = selectedTrial?.provenance?.previewAnchor === true;
 
     let finalImageData = selectedTrial.imageData;
 
@@ -627,7 +628,9 @@ export function processWatermarkImageData(imageData, options = {}) {
         firstPassGradientScore
     });
     const extraPassStartedAt = nowMs();
-    const extraPassResult = remainingPasses > 0 && !firstPassClearedResidual
+    const extraPassResult = remainingPasses > 0 &&
+        !firstPassClearedResidual &&
+        !skipPreviewAnchorMultiPass
         ? removeRepeatedWatermarkLayers({
             imageData: finalImageData,
             alphaMap,
@@ -643,7 +646,11 @@ export function processWatermarkImageData(imageData, options = {}) {
     finalImageData = extraPassResult?.imageData ?? finalImageData;
     passCount = extraPassResult?.passCount ?? 1;
     attemptedPassCount = extraPassResult?.attemptedPassCount ?? 1;
-    passStopReason = extraPassResult?.stopReason ?? (firstPassClearedResidual ? 'residual-low' : 'max-passes');
+    passStopReason = extraPassResult?.stopReason ?? (
+        firstPassClearedResidual
+            ? 'residual-low'
+            : (skipPreviewAnchorMultiPass ? 'preview-anchor-single-pass' : 'max-passes')
+    );
     passes = [firstPassRecord, ...(extraPassResult?.passes ?? [])];
     if (passCount > 1) {
         source = `${source}+multipass`;

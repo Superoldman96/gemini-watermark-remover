@@ -771,6 +771,111 @@ test('9-16.webp should fall back to the 48px anchor when the exact-official 96px
     }
 });
 
+test('9-16-preview.png should keep the preview anchor away from the extreme bottom-right corner', async (t) => {
+    let browser;
+    try {
+        browser = await chromium.launch({ headless: true });
+    } catch (error) {
+        if (isMissingPlaywrightExecutableError(error)) {
+            t.skip('Playwright browser binaries are missing in this environment');
+            return;
+        }
+        throw error;
+    }
+
+    const page = await browser.newPage();
+
+    try {
+        const alpha48 = calculateAlphaMap(await decodeImageDataInPage(page, BG48_PATH));
+        const alpha96 = calculateAlphaMap(await decodeImageDataInPage(page, BG96_PATH));
+        const filePath = path.join(SAMPLE_DIR, '9-16-preview.png');
+        const imageData = await decodeImageDataInPage(page, filePath);
+        const result = processWatermarkImageData(imageData, {
+            alpha48,
+            alpha96,
+            maxPasses: 4,
+            getAlphaMap: (size) => size === 48 ? alpha48 : size === 96 ? alpha96 : interpolateAlphaMap(alpha96, 96, size)
+        });
+
+        assert.equal(result.meta.applied, true, 'expected 9-16-preview.png to enter removal pipeline');
+        assert.ok(
+            result.meta.source.includes('preview-anchor'),
+            `expected 9-16-preview.png to use preview-anchor search, source=${result.meta.source}`
+        );
+        assert.ok(
+            result.meta.position.width >= 34 && result.meta.position.width <= 36,
+            `expected preview watermark size near 35px, got ${result.meta.position.width}`
+        );
+        assert.ok(
+            result.meta.position.x >= 512 && result.meta.position.x <= 516,
+            `expected preview watermark x anchor near the projected preview position, got ${result.meta.position.x}`
+        );
+        assert.ok(
+            result.meta.position.y >= 964 && result.meta.position.y <= 968,
+            `expected preview watermark y anchor near the projected preview position, got ${result.meta.position.y}`
+        );
+        assert.equal(
+            result.meta.passCount,
+            1,
+            `expected 9-16-preview.png preview-anchor removal to stop after the first pass, got ${result.meta.passCount}`
+        );
+        assert.ok(
+            !result.meta.source.includes('+multipass'),
+            `expected 9-16-preview.png preview-anchor path to skip multipass, source=${result.meta.source}`
+        );
+    } finally {
+        await browser.close();
+    }
+});
+
+test('21-9-preview.png should use preview-anchor edge cleanup to reduce residual watermark edges', async (t) => {
+    let browser;
+    try {
+        browser = await chromium.launch({ headless: true });
+    } catch (error) {
+        if (isMissingPlaywrightExecutableError(error)) {
+            t.skip('Playwright browser binaries are missing in this environment');
+            return;
+        }
+        throw error;
+    }
+
+    const page = await browser.newPage();
+
+    try {
+        const alpha48 = calculateAlphaMap(await decodeImageDataInPage(page, BG48_PATH));
+        const alpha96 = calculateAlphaMap(await decodeImageDataInPage(page, BG96_PATH));
+        const filePath = path.join(SAMPLE_DIR, '21-9-preview.png');
+        const imageData = await decodeImageDataInPage(page, filePath);
+        const result = processWatermarkImageData(imageData, {
+            alpha48,
+            alpha96,
+            maxPasses: 4,
+            getAlphaMap: (size) => size === 48 ? alpha48 : size === 96 ? alpha96 : interpolateAlphaMap(alpha96, 96, size)
+        });
+
+        assert.equal(result.meta.applied, true, 'expected 21-9-preview.png to enter removal pipeline');
+        assert.ok(
+            result.meta.source.includes('preview-anchor'),
+            `expected 21-9-preview.png to use preview-anchor search, source=${result.meta.source}`
+        );
+        assert.ok(
+            result.meta.source.includes('+edge-cleanup'),
+            `expected 21-9-preview.png to use preview edge cleanup, source=${result.meta.source}`
+        );
+        assert.ok(
+            result.meta.position.width >= 29 && result.meta.position.width <= 31,
+            `expected preview watermark size near 30px, got ${result.meta.position.width}`
+        );
+        assert.ok(
+            result.meta.detection.processedGradientScore < 0.4,
+            `expected residual preview gradient < 0.4, got ${result.meta.detection.processedGradientScore}`
+        );
+    } finally {
+        await browser.close();
+    }
+});
+
 test('non-watermarked synthetic image should keep the candidate region unchanged', async (t) => {
     let browser;
     try {
