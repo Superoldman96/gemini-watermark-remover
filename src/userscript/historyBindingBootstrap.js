@@ -108,6 +108,7 @@ function nextHistoryReqId() {
 export async function requestGeminiConversationHistoryBindings({
   targetWindow = globalThis.window || null,
   fetchImpl = null,
+  onResponseText = null,
   logger = console
 } = {}) {
   if (!targetWindow || typeof targetWindow !== 'object') {
@@ -144,7 +145,16 @@ export async function requestGeminiConversationHistoryBindings({
   }
 
   try {
-    await effectiveFetch(request.url, request.init);
+    const response = await effectiveFetch(request.url, request.init);
+    if (typeof onResponseText === 'function' && response) {
+      const responseText = typeof response.clone === 'function'
+        ? await response.clone().text()
+        : await response.text();
+      await onResponseText(responseText, {
+        request,
+        response
+      });
+    }
     return true;
   } catch (error) {
     logger?.warn?.('[Gemini Watermark Remover] Conversation history bootstrap failed:', error);

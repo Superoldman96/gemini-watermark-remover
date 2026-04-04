@@ -1,4 +1,5 @@
 import {
+  classifyGeminiAssetUrl,
   isGeminiGeneratedAssetUrl,
   isGeminiOriginalAssetUrl,
   normalizeGoogleusercontentImageUrl
@@ -139,6 +140,8 @@ const COPY_ACTION_LABEL_PATTERN = /(copy|复制)/i;
 const EXPLICIT_DOWNLOAD_ACTION_LABEL_PATTERN = /(download|下载)/i;
 const INTENT_EVENT_TYPES = ['click', 'keydown'];
 const DEFAULT_INTENT_WINDOW_MS = 5000;
+const DEFAULT_DOWNLOAD_STICKY_WINDOW_MS = 30000;
+const DIRECT_DOWNLOAD_FILENAME_BASENAME = 'gemini-image';
 const GEMINI_DOWNLOAD_RPC_HOST = 'gemini.google.com';
 const GEMINI_DOWNLOAD_RPC_PATH = '/_/BardChatUi/data/batchexecute';
 const GEMINI_DOWNLOAD_RPC_ID = 'c8o8Fe';
@@ -153,6 +156,30 @@ const GEMINI_XHR_HOOK_LISTENER = Symbol('gwrGeminiRpcXhrListener');
 
 function normalizeActionLabel(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function extractIntentCandidateUrl(candidate) {
+  if (typeof candidate === 'string') {
+    return candidate.trim();
+  }
+
+  if (!candidate || typeof candidate !== 'object') {
+    return '';
+  }
+
+  if (typeof candidate.normalizedUrl === 'string' && candidate.normalizedUrl.trim()) {
+    return candidate.normalizedUrl.trim();
+  }
+
+  if (typeof candidate.url === 'string' && candidate.url.trim()) {
+    return candidate.url.trim();
+  }
+
+  return '';
+}
+
+function isGeminiDownloadAssetUrl(url) {
+  return classifyGeminiAssetUrl(url)?.isDownload === true;
 }
 
 function collectButtonLikeLabels(element) {
@@ -192,13 +219,266 @@ export function resolveGeminiActionKind(target) {
   return '';
 }
 
+function inferDownloadExtensionFromMimeType(mimeType = '') {
+  const normalizedMimeType = typeof mimeType === 'string' ? mimeType.trim().toLowerCase() : '';
+  if (normalizedMimeType === 'image/jpeg' || normalizedMimeType === 'image/jpg') {
+    return '.jpg';
+  }
+  if (normalizedMimeType === 'image/webp') {
+    return '.webp';
+  }
+  return '.png';
+}
+
+function buildDirectDownloadFilename(blob, {
+  baseName = DIRECT_DOWNLOAD_FILENAME_BASENAME
+} = {}) {
+  const resolvedBaseName = typeof baseName === 'string' && baseName.trim()
+    ? baseName.trim()
+    : DIRECT_DOWNLOAD_FILENAME_BASENAME;
+  return `${resolvedBaseName}${inferDownloadExtensionFromMimeType(blob?.type || '')}`;
+}
+
+function triggerBlobDownload(targetWindow, blob, {
+  fileName = buildDirectDownloadFilename(blob)
+} = {}) {
+  const documentRef = targetWindow?.document || globalThis.document;
+  const urlApi = targetWindow?.URL || globalThis.URL;
+  if (!documentRef?.createElement || typeof urlApi?.createObjectURL !== 'function') {
+    throw new Error('Blob download APIs are unavailable');
+  }
+
+  const objectUrl = urlApi.createObjectURL(blob);
+  const anchor = documentRef.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = fileName;
+
+  let appended = false;
+  try {
+    if (documentRef.body?.appendChild) {
+      documentRef.body.appendChild(anchor);
+      appended = true;
+    }
+    anchor.click?.();
+  } finally {
+    if (typeof anchor.remove === 'function') {
+      anchor.remove();
+    } else if (appended && documentRef.body?.removeChild) {
+      documentRef.body.removeChild(anchor);
+    }
+    urlApi.revokeObjectURL?.(objectUrl);
+  }
+}
+
+async function resolveDirectDownloadResult({
+  actionContext = null,
+  fetchImpl,
+  fetchBlobImpl = null,
+  normalizeUrl,
+  processBlob,
+  onProcessedBlobResolved = null
+} = {}) {
+  if (shouldReuseProcessedDownloadResource(actionContext)) {
+    return {
+      processedBlob: actionContext.resource.blob
+    };
+  }
+
+  const sourceUrl = actionContext?.resource?.kind === 'original'
+    && typeof actionContext.resource.url === 'string'
+    ? actionContext.resource.url.trim()
+    : '';
+  if (!sourceUrl) {
+    throw new Error('Original image is unavailable for download processing');
+  }
+
+  const normalizedUrl = normalizeUrl(sourceUrl);
+  let originalBlob = null;
+  let responseStatus = 200;
+  let responseStatusText = 'OK';
+  let responseHeaders = {};
+
+  if (typeof fetchBlobImpl === 'function') {
+    originalBlob = await fetchBlobImpl(normalizedUrl);
+    if (!(originalBlob instanceof Blob)) {
+      throw new Error('Original image fetch did not return a Blob');
+    }
+    if (originalBlob.type && !/^image\//i.test(originalBlob.type)) {
+      throw new Error('Original image response was not an image');
+    }
+    responseHeaders = {
+      'content-type': originalBlob.type || 'application/octet-stream'
+    };
+  } else {
+    const response = await fetchImpl(normalizedUrl, {
+      gwrBypass: true
+    });
+    if (!response?.ok) {
+      throw new Error(`Failed to fetch original image: ${response?.status || 0} ${response?.statusText || ''}`.trim());
+    }
+    if (!isImageResponse(response)) {
+      throw new Error('Original image response was not an image');
+    }
+
+    originalBlob = await response.blob();
+    responseStatus = response.status;
+    responseStatusText = response.statusText;
+    responseHeaders = serializeResponseHeaders(response.headers);
+  }
+
+  const processingContext = {
+    url: sourceUrl,
+    normalizedUrl,
+    responseStatus,
+    responseStatusText,
+    responseHeaders
+  };
+  if (actionContext != null) {
+    processingContext.actionContext = actionContext;
+  }
+
+  const processedBlob = await processBlob(originalBlob, processingContext);
+  if (typeof onProcessedBlobResolved === 'function') {
+    await onProcessedBlobResolved(appendCompatibleActionContext({
+      url: sourceUrl,
+      normalizedUrl,
+      processedBlob,
+      responseStatus,
+      responseStatusText,
+      responseHeaders
+    }, actionContext));
+  }
+
+  return {
+    processedBlob
+  };
+}
+
+export function createGeminiDirectDownloadActionHandler({
+  targetWindow = globalThis,
+  resolveActionContext = () => null,
+  fetchImpl = null,
+  fetchBlobImpl = null,
+  normalizeUrl = normalizeGoogleusercontentImageUrl,
+  processBlob,
+  onProcessedBlobResolved = null,
+  onActionCriticalFailure = null,
+  logger = console
+} = {}) {
+  if (typeof resolveActionContext !== 'function') {
+    throw new TypeError('resolveActionContext must be a function');
+  }
+  if (typeof normalizeUrl !== 'function') {
+    throw new TypeError('normalizeUrl must be a function');
+  }
+  if (typeof processBlob !== 'function') {
+    throw new TypeError('processBlob must be a function');
+  }
+
+  const resolvedFetchImpl = typeof fetchImpl === 'function'
+    ? fetchImpl
+    : targetWindow?.fetch?.bind?.(targetWindow);
+  if (typeof resolvedFetchImpl !== 'function') {
+    throw new TypeError('fetchImpl must be a function');
+  }
+
+  const inFlightSessionKeys = new Set();
+
+  return async function handleGeminiDirectDownloadAction(eventOrTarget, explicitEvent = null) {
+    const event = explicitEvent
+      || (eventOrTarget && typeof eventOrTarget === 'object' && 'target' in eventOrTarget
+        ? eventOrTarget
+        : null);
+    const target = explicitEvent ? eventOrTarget : (event?.target || eventOrTarget);
+
+    if (event?.type === 'keydown') {
+      const key = typeof event.key === 'string' ? event.key : '';
+      if (key && key !== 'Enter' && key !== ' ') {
+        return false;
+      }
+    }
+
+    if (resolveGeminiActionKind(target) !== 'download') {
+      return false;
+    }
+
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    event?.stopImmediatePropagation?.();
+
+    const actionContext = resolveActionContext(target, event);
+    const sessionKey = typeof actionContext?.sessionKey === 'string'
+      ? actionContext.sessionKey.trim()
+      : '';
+    if (sessionKey && inFlightSessionKeys.has(sessionKey)) {
+      return true;
+    }
+
+    if (sessionKey) {
+      inFlightSessionKeys.add(sessionKey);
+    }
+
+    try {
+      const { processedBlob } = await resolveDirectDownloadResult({
+        actionContext,
+        fetchImpl: resolvedFetchImpl,
+        fetchBlobImpl,
+        normalizeUrl,
+        processBlob,
+        onProcessedBlobResolved
+      });
+      triggerBlobDownload(targetWindow, processedBlob);
+    } catch (error) {
+      logger?.warn?.('[Gemini Watermark Remover] Direct download action failed:', error);
+      await notifyActionCriticalFailure(onActionCriticalFailure, appendCompatibleActionContext({
+        error
+      }, actionContext));
+    } finally {
+      if (sessionKey) {
+        inFlightSessionKeys.delete(sessionKey);
+      }
+    }
+
+    return true;
+  };
+}
+
+export function installGeminiDirectDownloadActionHook(targetWindow, options = {}) {
+  if (!targetWindow || typeof targetWindow.addEventListener !== 'function') {
+    throw new TypeError('targetWindow must support addEventListener');
+  }
+
+  const handleEvent = createGeminiDirectDownloadActionHandler({
+    targetWindow,
+    ...options
+  });
+  const listener = (event) => {
+    void handleEvent(event);
+  };
+
+  for (const eventType of INTENT_EVENT_TYPES) {
+    targetWindow.addEventListener(eventType, listener, true);
+  }
+
+  return {
+    handleEvent,
+    dispose() {
+      for (const eventType of INTENT_EVENT_TYPES) {
+        targetWindow.removeEventListener?.(eventType, listener, true);
+      }
+    }
+  };
+}
+
 export function createGeminiDownloadIntentGate({
   targetWindow = globalThis,
   now = () => Date.now(),
   windowMs = DEFAULT_INTENT_WINDOW_MS,
+  downloadWindowMs = DEFAULT_DOWNLOAD_STICKY_WINDOW_MS,
   resolveActionContext = null
 } = {}) {
   let armedUntil = 0;
+  let downloadStickyUntil = 0;
   let recentActionContext = null;
   let recentIntentTarget = null;
 
@@ -212,14 +492,33 @@ export function createGeminiDownloadIntentGate({
     armedUntil = Math.max(armedUntil, now() + windowMs);
     recentActionContext = cloneActionContext(actionContext);
     recentIntentTarget = target || recentIntentTarget || null;
+
+    const resolvedActionKind = actionContext?.action || resolveGeminiActionKind(target) || '';
+    if (resolvedActionKind === 'download') {
+      downloadStickyUntil = Math.max(
+        downloadStickyUntil,
+        now() + Math.max(windowMs, downloadWindowMs)
+      );
+      return;
+    }
+
+    downloadStickyUntil = 0;
   }
 
-  function hasRecentIntent() {
-    return now() <= armedUntil;
+  function hasStickyDownloadIntent(candidate = null) {
+    if (now() > downloadStickyUntil) {
+      return false;
+    }
+
+    return isGeminiDownloadAssetUrl(extractIntentCandidateUrl(candidate));
   }
 
-  function getRecentActionContext() {
-    if (!hasRecentIntent()) {
+  function hasRecentIntent(candidate = null) {
+    return now() <= armedUntil || hasStickyDownloadIntent(candidate);
+  }
+
+  function getRecentActionContext(candidate = null) {
+    if (!hasRecentIntent(candidate)) {
       return null;
     }
 
@@ -234,6 +533,15 @@ export function createGeminiDownloadIntentGate({
     }
 
     return recentActionContext;
+  }
+
+  function release(candidate = null) {
+    if (candidate == null || isGeminiDownloadAssetUrl(extractIntentCandidateUrl(candidate))) {
+      armedUntil = 0;
+      downloadStickyUntil = 0;
+      recentActionContext = null;
+      recentIntentTarget = null;
+    }
   }
 
   function handleEvent(event) {
@@ -264,6 +572,7 @@ export function createGeminiDownloadIntentGate({
     arm,
     hasRecentIntent,
     getRecentActionContext,
+    release,
     handleEvent,
     dispose() {
       for (const eventType of INTENT_EVENT_TYPES) {
@@ -521,7 +830,9 @@ function isGeminiResponseTuple(value) {
     && value[1].startsWith('r_');
 }
 
-function collectGeminiResponseSequence(node, sequence = [], seen = new Map()) {
+function collectGeminiResponseSequence(node, sequence = [], seen = new Map(), state = {
+  order: 0
+}) {
   if (!Array.isArray(node)) {
     return sequence;
   }
@@ -533,10 +844,13 @@ function collectGeminiResponseSequence(node, sequence = [], seen = new Map()) {
       ? node[2]
       : null;
     const responseKey = `${conversationId}|${responseId}`;
+    const tupleOrder = state.order;
+    state.order += 1;
     const existing = seen.get(responseKey);
     if (existing) {
       if (!existing.draftId && draftId) {
         existing.draftId = draftId;
+        existing.firstDraftOrder = tupleOrder;
       }
       return sequence;
     }
@@ -544,7 +858,9 @@ function collectGeminiResponseSequence(node, sequence = [], seen = new Map()) {
     const entry = {
       conversationId,
       responseId,
-      draftId
+      draftId,
+      firstOrder: tupleOrder,
+      firstDraftOrder: draftId ? tupleOrder : Number.POSITIVE_INFINITY
     };
     seen.set(responseKey, entry);
     sequence.push(entry);
@@ -552,7 +868,7 @@ function collectGeminiResponseSequence(node, sequence = [], seen = new Map()) {
   }
 
   for (const item of node) {
-    collectGeminiResponseSequence(item, sequence, seen);
+    collectGeminiResponseSequence(item, sequence, seen, state);
   }
 
   return sequence;
@@ -601,43 +917,135 @@ function collectGeminiDraftBlocksFromParsedNode(node, blocks = []) {
   return blocks;
 }
 
+function collectGeminiDraftIdsFromParsedNode(node, draftIds = []) {
+  if (!Array.isArray(node)) {
+    return draftIds;
+  }
+
+  if (typeof node[0] === 'string' && node[0].startsWith('rc_')) {
+    draftIds.push(node[0]);
+  }
+
+  for (const item of node) {
+    collectGeminiDraftIdsFromParsedNode(item, draftIds);
+  }
+
+  return draftIds;
+}
+
+function extractGeminiAssetBindingsFromParsedHistorySegments(node, bindings = [], seen = new Set()) {
+  if (!Array.isArray(node)) {
+    return bindings;
+  }
+
+  const immediateResponses = node.filter(isGeminiResponseTuple);
+  const discoveredUrls = Array.from(collectGeminiGeneratedUrlsFromParsedNode(node));
+  const draftIds = collectGeminiDraftIdsFromParsedNode(node);
+
+  if (immediateResponses.length > 0 && discoveredUrls.length > 0 && draftIds.length > 0) {
+    const leadingResponse = immediateResponses[0];
+    const responseDraftId = typeof leadingResponse[2] === 'string' && leadingResponse[2].startsWith('rc_')
+      ? leadingResponse[2]
+      : null;
+    const resolvedDraftId = draftIds[draftIds.length - 1] || responseDraftId || null;
+    const conversationId = leadingResponse[0];
+    const responseId = leadingResponse[1];
+
+    for (const discoveredUrl of discoveredUrls) {
+      const bindingKey = `${conversationId || ''}|${responseId || ''}|${resolvedDraftId || ''}|${discoveredUrl}`;
+      if (seen.has(bindingKey)) {
+        continue;
+      }
+      seen.add(bindingKey);
+      bindings.push({
+        discoveredUrl,
+        assetIds: {
+          responseId,
+          draftId: resolvedDraftId,
+          conversationId
+        }
+      });
+    }
+    return bindings;
+  }
+
+  for (const child of node) {
+    extractGeminiAssetBindingsFromParsedHistorySegments(child, bindings, seen);
+  }
+
+  return bindings;
+}
+
 function extractGeminiAssetBindingsFromParsedHistoryNode(historyNode) {
   if (!Array.isArray(historyNode)) {
     return [];
   }
 
-  const responseSequence = collectGeminiResponseSequence(historyNode);
+  const responseSequence = collectGeminiResponseSequence(historyNode)
+    .slice()
+    .sort((left, right) => {
+      const leftOrder = Number.isFinite(left.firstDraftOrder) ? left.firstDraftOrder : left.firstOrder;
+      const rightOrder = Number.isFinite(right.firstDraftOrder) ? right.firstDraftOrder : right.firstOrder;
+      return leftOrder - rightOrder;
+    });
   const draftBlocks = collectGeminiDraftBlocksFromParsedNode(historyNode);
-  if (responseSequence.length === 0 || draftBlocks.length === 0) {
-    return [];
-  }
+  if (responseSequence.length > 0 && draftBlocks.length > 0) {
+    const remainingResponseEntries = [...responseSequence];
+    const responseEntriesByDraftId = new Map();
+    for (const responseEntry of responseSequence) {
+      if (!responseEntry.draftId) {
+        continue;
+      }
 
-  const bindings = [];
-  const pairCount = Math.min(responseSequence.length, draftBlocks.length);
-  for (let index = 0; index < pairCount; index += 1) {
-    const responseEntry = responseSequence[index];
-    const draftBlock = draftBlocks[index];
-    const resolvedDraftId = (
-      responseSequence.length === 1
-      && draftBlocks.length === 1
-      && responseEntry.draftId
-    )
-      ? responseEntry.draftId
-      : (draftBlock.draftId || responseEntry.draftId || null);
+      const existingEntries = responseEntriesByDraftId.get(responseEntry.draftId);
+      if (existingEntries) {
+        existingEntries.push(responseEntry);
+      } else {
+        responseEntriesByDraftId.set(responseEntry.draftId, [responseEntry]);
+      }
+    }
 
-    for (const discoveredUrl of draftBlock.discoveredUrls) {
-      bindings.push({
-        discoveredUrl,
-        assetIds: {
-          responseId: responseEntry.responseId,
-          draftId: resolvedDraftId,
-          conversationId: responseEntry.conversationId
-        }
-      });
+    const bindings = [];
+    for (const draftBlock of draftBlocks) {
+      const directDraftMatches = draftBlock.draftId
+        ? (responseEntriesByDraftId.get(draftBlock.draftId) || [])
+        : [];
+      const responseEntry = directDraftMatches.shift() || remainingResponseEntries.shift();
+      if (!responseEntry) {
+        continue;
+      }
+
+      const matchedResponseIndex = remainingResponseEntries.indexOf(responseEntry);
+      if (matchedResponseIndex >= 0) {
+        remainingResponseEntries.splice(matchedResponseIndex, 1);
+      }
+
+      const resolvedDraftId = (
+        responseSequence.length === 1
+        && draftBlocks.length === 1
+        && responseEntry.draftId
+      )
+        ? responseEntry.draftId
+        : (draftBlock.draftId || responseEntry.draftId || null);
+
+      for (const discoveredUrl of draftBlock.discoveredUrls) {
+        bindings.push({
+          discoveredUrl,
+          assetIds: {
+            responseId: responseEntry.responseId,
+            draftId: resolvedDraftId,
+            conversationId: responseEntry.conversationId
+          }
+        });
+      }
+    }
+
+    if (bindings.length > 0) {
+      return bindings;
     }
   }
 
-  return bindings;
+  return extractGeminiAssetBindingsFromParsedHistorySegments(historyNode);
 }
 
 function collectGeminiResponseBindingAnchors(responseText) {
@@ -1104,10 +1512,29 @@ export function installGeminiDownloadHook(targetWindow, options) {
   const originalFetch = typeof options?.originalFetch === 'function'
     ? options.originalFetch
     : targetWindow.fetch;
+  const onProcessedBlobResolved = async (payload) => {
+    await options?.onProcessedBlobResolved?.(payload);
+    if (payload?.actionContext?.action === 'download') {
+      intentGate.release();
+    }
+  };
+  const onActionCriticalFailure = async (payload) => {
+    await options?.onActionCriticalFailure?.(payload);
+    if (payload?.actionContext?.action === 'download') {
+      intentGate.release();
+    }
+  };
   const hook = createGeminiDownloadFetchHook({
     ...options,
-    getActionContext: () => getActionContextFromIntentGate(intentGate),
-    shouldProcessRequest: options?.shouldProcessRequest || (() => intentGate.hasRecentIntent()),
+    getActionContext: ({ url = '', normalizedUrl = '' } = {}) => getActionContextFromIntentGate(
+      intentGate,
+      { normalizedUrl, url }
+    ),
+    onProcessedBlobResolved,
+    onActionCriticalFailure,
+    shouldProcessRequest: options?.shouldProcessRequest || (({ url = '', normalizedUrl = '' } = {}) => (
+      intentGate.hasRecentIntent({ normalizedUrl, url })
+    )),
     originalFetch
   });
 

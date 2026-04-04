@@ -47,8 +47,13 @@ Observed facts:
 
 4. Download is also request-driven, but more fragile under automation.
    - Clicking `下载完整尺寸的图片` triggered Gemini RPC `c8o8Fe`.
-   - Under automation this specific session hit Google's `/sorry` protection, so the final browser download could not be captured.
-   - Even so, the entrypoint is clearly request-based rather than DOM-based.
+   - On the fixed-profile trace captured on 2026-04-04:
+     - `c8o8Fe` request started about `+50ms` after click
+     - `c8o8Fe` response returned about `+22.4s`
+     - `gg-dl` and `work.fife ... rd-gg-dl` hops both returned `text/plain`
+     - the final `lh3.googleusercontent.com/rd-gg-dl/...=s0-d-I` returned `image/png` at about `+23.9s`
+   - The browser then saved a full-size `3136 x 1344` PNG through a blob-backed download event.
+   - Local detector analysis on that saved PNG reported `skipReason=no-watermark-detected`.
 
 ## Root Cause
 
@@ -61,6 +66,23 @@ The current architecture is too permissive:
 
 This is why the system can appear "ready" while still preserving watermark artifacts.
 
+There is also a more specific download regression to avoid:
+
+- an active userscript-side direct-download click hook that cancels Gemini's native button event too early
+- this blocks Gemini's own `c8o8Fe` and `rd-gg-dl` chain before the stable full-quality path is available
+- once that happens, the userscript only sees earlier `hNvQHb` history bindings, which currently resolve mostly to preview-style `gg/...=s0` URLs
+- using those preview bindings as the direct download source recreates the original instability:
+  - missing-original failures
+  - cross-context fetch failures
+  - false confidence that the action is "handled" while the real native path never ran
+
+There is one more root-cause detail for the passive path:
+
+- the old base intent window was only `5000ms`
+- real Gemini full-size download chains can take `20s+` before the final `rd-gg-dl image/png` request appears
+- when that happens, the passive request-layer hook misses the request even though the architecture is otherwise correct
+- the fix is not to reintroduce an active click-cancel path; it is to keep an explicit download intent sticky for Gemini download asset URLs long enough to cover the native chain
+
 ## Final Direction
 
 The stable direction is a request-layer interceptor, not a DOM replacement system.
@@ -70,9 +92,13 @@ The stable direction is a request-layer interceptor, not a DOM replacement syste
 Ship a fail-closed request-driven path for explicit actions:
 
 - keep original-asset discovery from RPC/history parsing
-- intercept Gemini `rd-gg` original/full-quality fetch responses
+- intercept Gemini `rd-gg` / `rd-gg-dl` original/full-quality fetch responses
 - process the intercepted response body before it reaches Gemini's own copy/download flow
 - disable default DOM preview replacement
+- keep the click layer passive:
+  - arm copy/download intent
+  - keep explicit download intent sticky for late Gemini download asset requests
+  - do not cancel Gemini's native button handling just to start a parallel userscript-only download flow
 - if original binding/full-quality asset resolution is unavailable, show an explicit user-facing error:
   - `无法获取原图，请刷新页面后重试`
 
@@ -138,8 +164,9 @@ Minimum verification for Phase 1:
 - unit tests proving copy/download no longer reuse preview resources as success paths
 - startup/entry tests proving preview DOM replacement is not installed by default
 - real-page validation on fixed profile:
-  - request logs show `rd-gg` interception on copy/download
+  - request logs show the native `c8o8Fe -> gg-dl -> rd-gg-dl` chain and late `image/png` interception on download
   - clipboard output is de-watermarked
+  - downloaded full-size PNG is de-watermarked
   - binding failure surfaces the explicit refresh/retry error
 
 ## Decision

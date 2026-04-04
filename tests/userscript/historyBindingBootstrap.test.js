@@ -100,6 +100,45 @@ test('requestGeminiConversationHistoryBindings should call fetch with the curren
   assert.match(calls[0].init.body, /%22hNvQHb%22/);
 });
 
+test('requestGeminiConversationHistoryBindings should expose the response text to the bootstrap callback', async () => {
+  let seenPayload = null;
+  const requested = await requestGeminiConversationHistoryBindings({
+    targetWindow: {
+      location: {
+        origin: 'https://gemini.google.com',
+        pathname: '/app/cdec91057e5fdcaf'
+      },
+      document: {
+        documentElement: {
+          lang: 'zh-CN'
+        }
+      },
+      navigator: {
+        language: 'zh-CN'
+      },
+      WIZ_global_data: {
+        SNlM0e: 'AJvLN6N-example:1774855312870',
+        cfb2h: 'boq_assistant-bard-web-server_20260325.04_p0',
+        FdrFJe: '-3468728888195759789',
+        eptZe: '/_/BardChatUi/'
+      }
+    },
+    fetchImpl: async () => new Response(')]}\'\n123\n[["wrb.fr","hNvQHb","[]",null,null,null,"generic"]]', { status: 200 }),
+    onResponseText: async (responseText, payload) => {
+      seenPayload = {
+        responseText,
+        requestUrl: payload.request.url
+      };
+    },
+    logger: { warn() {} }
+  });
+
+  assert.equal(requested, true);
+  assert.equal(seenPayload?.responseText, ')]}\'\n123\n[["wrb.fr","hNvQHb","[]",null,null,null,"generic"]]');
+  assert.match(seenPayload?.requestUrl || '', /rpcids=hNvQHb/);
+  assert.match(seenPayload?.requestUrl || '', /source-path=%2Fapp%2Fcdec91057e5fdcaf/);
+});
+
 test('requestGeminiConversationHistoryBindings should skip when current page is not a conversation route', async () => {
   let called = false;
   const requested = await requestGeminiConversationHistoryBindings({

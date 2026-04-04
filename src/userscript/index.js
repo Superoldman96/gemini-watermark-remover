@@ -1,4 +1,7 @@
-import { resolveCompatibleActionContextFromPayload } from '../shared/actionContextCompat.js';
+import {
+  appendCompatibleActionContext,
+  resolveCompatibleActionContextFromPayload
+} from '../shared/actionContextCompat.js';
 import {
   bindOriginalAssetUrlToImages,
   installPageImageReplacement
@@ -9,6 +12,7 @@ import { createGeminiActionContextResolver } from './actionContext.js';
 import {
   createGeminiDownloadIntentGate,
   createGeminiDownloadRpcFetchHook,
+  extractGeminiAssetBindingsFromResponseText,
   installGeminiDownloadRpcXmlHttpRequestHook,
   installGeminiDownloadHook,
   resolveGeminiActionKind
@@ -203,6 +207,16 @@ function isPreviewReplacementEnabled(targetWindow) {
     await requestGeminiConversationHistoryBindings({
       targetWindow,
       fetchImpl: targetWindow.fetch.bind(targetWindow),
+      onResponseText: async (responseText, { request }) => {
+        for (const binding of extractGeminiAssetBindingsFromResponseText(responseText)) {
+          handleRpcAssetDiscovered(appendCompatibleActionContext({
+            rpcUrl: request?.url || '',
+            discoveredUrl: binding.discoveredUrl
+          }, {
+            assetIds: binding.assetIds
+          }));
+        }
+      },
       logger: console
     });
     await processingRuntime.initialize();

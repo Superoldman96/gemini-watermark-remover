@@ -4,7 +4,7 @@
 
 ### Fixed Tampermonkey / Gemini Environment
 
-- Fixed Chrome profile: `D:\Project\gemini-watermark-remover\.chrome-debug\tampermonkey-profile`
+- Fixed Chrome profile: `.chrome-debug/tampermonkey-profile`
 - Fixed CDP port: `9226`
 - Default proxy: `http://127.0.0.1:7890`
 - Production userscript artifact: `dist/userscript/gemini-watermark-remover.user.js`
@@ -30,14 +30,35 @@ Do this only once in the fixed profile:
 2. Enable `Allow User Scripts` in Chrome extension details.
 3. Keep Developer Mode enabled.
 4. Install `public/tampermonkey-worker-probe.user.js` when local probe validation is needed.
-5. Install or reinstall the production userscript from `http://127.0.0.1:4173/userscript/gemini-watermark-remover.user.js` when validating the latest build.
+5. Install or reinstall the production userscript from the current local build server when validating the latest build.
+   - Preferred current dev URL: `http://127.0.0.1:4317/userscript/gemini-watermark-remover.user.js`
+   - Do not assume `4173` is current if another static server is already running there.
 
 ### Local Build and Services
 
 - Production build: `pnpm build`
-- Local dist server: dev mode or an existing `http://127.0.0.1:4173/`
+- Local dist server: dev mode or the active local build server for this worktree
+- Current confirmed dev server during request-layer debugging: `http://127.0.0.1:4317/`
 - Probe smoke test: `pnpm probe:tm`
 - Open fixed profile: `pnpm probe:tm:profile`
+
+### Installed Userscript Freshness Check
+
+When real-page behavior does not match the current worktree, verify the installed userscript body, not just the script name or `@version`.
+
+- Same `@version` does not guarantee the fixed profile is running the latest build.
+- A stale Tampermonkey script can still show:
+  - `[Gemini Watermark Remover] Initializing...`
+  - `[Gemini Watermark Remover] Ready`
+  - while silently missing newer request-layer fixes such as the download sticky intent window
+- If the real page shows old behavior after a reinstall:
+  1. Open the Tampermonkey editor for `Gemini NanoBanana 图片水印移除`
+  2. Compare the installed source against `dist/userscript/gemini-watermark-remover.user.js`
+  3. Confirm the installed source contains the expected newer markers before continuing real-page debugging
+     - `DEFAULT_DOWNLOAD_STICKY_WINDOW_MS`
+     - `downloadStickyUntil`
+     - `getActionContextFromIntentGate(intentGate = null, candidate = null)`
+  4. Refresh the real Gemini page after the fixed profile is updated
 
 ### Real Gemini Page Validation
 
@@ -56,6 +77,18 @@ Minimum validation flow:
 5. If bridge validation is needed, trigger from page side:
    - `gwr:userscript-process-request`
    - Expect `gwr:userscript-process-response`
+
+Current confirmed request-layer behavior on the fixed profile:
+
+- `copy` can populate the strict original binding path through real `rd-gg` asset fetches and then place a processed `image/png` onto the clipboard
+- `download` stays on Gemini's native `c8o8Fe -> gg-dl -> rd-gg-dl` export flow; the userscript does not cancel the click
+- the userscript keeps explicit download intent alive for Gemini download asset URLs long enough to catch late `rd-gg-dl` requests on the native chain
+- If the original URL binding is unavailable when the required download/original request arrives, the action must fail closed with:
+  - `无法获取原图，请刷新页面后重试`
+- A successful real-page full-size download currently produces:
+  - a browser `download` event
+  - a blob-backed saved file such as `Gemini_Generated_Image_vusbaevusbaevusb.png`
+  - local detector result `skipReason=no-watermark-detected`
 
 ### Real-Page Pixel Verification
 
@@ -90,7 +123,8 @@ When the user reports "this version became much slower", check these first befor
      - Real page silently falls back to the userscript sandbox / slow main-thread path.
      - Earlier bad runs showed `removeWatermarkMs` on the order of `11s ~ 13s` for a single preview image.
    - Verify:
-     - Reinstall the latest userscript from `http://127.0.0.1:4173/userscript/gemini-watermark-remover.user.js`
+     - Reinstall the latest userscript from the current active build server
+       - current confirmed URL: `http://127.0.0.1:4317/userscript/gemini-watermark-remover.user.js`
      - Refresh the real page
      - Confirm console reaches `Initializing...` and `Ready`
      - Confirm preview images continue to `page image process success`
@@ -129,6 +163,54 @@ Why this exists:
 - It lowers strong-sample real-page residual gradient from roughly `0.53` to roughly `0.30`
 - It keeps preview-anchor cleanup latency low by avoiding no-op subpixel sweeps
 - It accepts some spatial drift to stay within a safe residual envelope rather than overfitting and risking content damage
+
+### Confirmed Download / Copy Integration Constraint
+
+Do not re-enable the old active direct-download click hook in production.
+
+Confirmed real-page failure mode on `https://gemini.google.com/u/1/app/d3cd7d14852ecd3b?pageId=none`:
+
+- When the userscript intercepts `下载完整尺寸的图片` at capture time and calls `preventDefault()/stopImmediatePropagation()`, Gemini's own download flow is blocked before it can issue its native `c8o8Fe` / `rd-gg-dl` chain.
+- In that state, the userscript only has the earlier history bootstrap bindings from `hNvQHb`.
+- Current real `hNvQHb` bindings are mostly preview-style `gg/...=s0` URLs, not the final native download URL.
+- Falling back to those preview bindings makes the userscript attempt its own fetch path too early, which previously surfaced as:
+  - `Original image is unavailable for download processing`
+  - or `Failed to fetch image: 403`
+  - followed by the user-facing retry alert
+
+There is a second real-page failure mode to keep in mind even after removing the active click hook:
+
+- Gemini's native full-size download chain can be much slower than the base intent window.
+- On the 2026-04-04 fixed-profile trace:
+  - `c8o8Fe` request started about `+50ms` after click
+  - `c8o8Fe` response returned about `+22.4s`
+  - final `rd-gg-dl ... image/png` arrived about `+23.9s`
+- A plain `5000ms` intent window expires far too early, so the passive request hook stops processing before the final full-size image request appears.
+
+Current correct production shape:
+
+- keep the intent gate for copy / download gestures
+- keep Gemini RPC discovery hooks (`hNvQHb`, `c8o8Fe`, related batchexecute responses)
+- keep generated-asset fetch interception for the native request flow
+- let Gemini continue its own click handling
+- do not block the button just to start a parallel userscript-only download path
+- keep a download-specific sticky intent window for Gemini download asset URLs
+  - current default: `30000ms`
+  - release it after terminal success/failure so it does not leak across actions
+
+Current confirmed real-page result with the passive native chain plus sticky download intent:
+
+- `下载完整尺寸的图片` produced a browser `download` event
+- the resulting download used a blob URL generated from the page flow
+- the saved file was `3136 x 1344`, about `5.4MB`, sha256 `4e945813779b58a5eda0f01f7973c924210477a84ae1d3826138f57b60eb691f`
+- local detector on that downloaded file reported:
+  - `skipReason = no-watermark-detected`
+  - `originalSpatialScore ~= -0.4096`
+  - `originalGradientScore ~= 0.0826`
+- no `无法获取原图，请刷新页面后重试` alert appeared
+- `复制图片` wrote an `image/png` item to the clipboard without a failure alert
+- current artifact:
+  - `.artifacts/request-layer-effect-verify/2026-04-04T15-00-44-510Z/download/report.json`
 
 ### Worker Debug Flow
 

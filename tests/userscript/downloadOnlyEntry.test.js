@@ -14,6 +14,7 @@ test('userscript entry should install download hooks while keeping preview repla
   const clipboardHookCall = normalizeWhitespace(getCallSource(source, 'installGeminiClipboardImageHook'));
 
   assert.equal(hasImportedBinding(source, './downloadHook.js', 'installGeminiDownloadHook'), true);
+  assert.equal(hasImportedBinding(source, './downloadHook.js', 'installGeminiDirectDownloadActionHook'), false);
   assert.equal(hasImportedBinding(source, './downloadHook.js', 'createGeminiDownloadRpcFetchHook'), true);
   assert.equal(hasImportedBinding(source, './downloadHook.js', 'installGeminiDownloadRpcXmlHttpRequestHook'), true);
   assert.equal(hasImportedBinding(source, './downloadHook.js', 'resolveGeminiActionKind'), true);
@@ -35,6 +36,7 @@ test('userscript entry should install download hooks while keeping preview repla
   );
   assert.match(installDownloadHookCall, /onActionCriticalFailure:\s*handleActionCriticalFailure/);
   assert.match(clipboardHookCall, /onActionCriticalFailure:\s*handleActionCriticalFailure/);
+  assert.doesNotMatch(normalizeWhitespace(source), /installGeminiDirectDownloadActionHook\(/);
 });
 
 test('userscript entry should skip initialization inside nested frames', () => {

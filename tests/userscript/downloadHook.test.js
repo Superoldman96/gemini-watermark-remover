@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  createGeminiDirectDownloadActionHandler,
   createGeminiDownloadFetchHook,
   createGeminiDownloadRpcFetchHook,
   installGeminiDownloadRpcXmlHttpRequestHook,
@@ -16,6 +17,31 @@ import {
   resolveGeminiActionKind
 } from '../../src/userscript/downloadHook.js';
 import { isGeminiOriginalAssetUrl } from '../../src/userscript/urlUtils.js';
+
+function createButtonLikeTarget(label = '下载完整尺寸的图片') {
+  const button = {
+    getAttribute(name) {
+      if (name === 'aria-label') {
+        return label;
+      }
+      return '';
+    },
+    innerText: '',
+    textContent: '',
+    closest(selector) {
+      return /button/.test(selector) ? button : null;
+    }
+  };
+
+  return {
+    button,
+    target: {
+      closest(selector) {
+        return /button/.test(selector) ? button : null;
+      }
+    }
+  };
+}
 
 test('createGeminiDownloadFetchHook should delegate non-target requests untouched', async () => {
   const calls = [];
@@ -717,6 +743,70 @@ test('createGeminiDownloadIntentGate should support resolveActionContext as the 
   });
 });
 
+test('createGeminiDownloadIntentGate should retain explicit download intent for Gemini download asset urls beyond the base window', () => {
+  let now = 100;
+  const listeners = new Map();
+  const actionContext = {
+    action: 'download',
+    sessionKey: 'draft:rc_sticky_download_window',
+    assetIds: {
+      responseId: 'r_sticky_download_window',
+      draftId: 'rc_sticky_download_window',
+      conversationId: 'c_sticky_download_window'
+    }
+  };
+  const targetWindow = {
+    addEventListener(type, listener) {
+      listeners.set(type, listener);
+    },
+    removeEventListener(type) {
+      listeners.delete(type);
+    }
+  };
+
+  const gate = createGeminiDownloadIntentGate({
+    targetWindow,
+    now: () => now,
+    windowMs: 5000,
+    resolveActionContext: () => actionContext
+  });
+
+  listeners.get('click')?.({
+    target: {
+      closest() {
+        return {
+          getAttribute(name) {
+            return name === 'aria-label' ? '下载完整尺寸的图片' : '';
+          },
+          textContent: ''
+        };
+      }
+    }
+  });
+
+  now += 6000;
+
+  assert.equal(gate.hasRecentIntent(), false);
+  assert.equal(
+    gate.hasRecentIntent({
+      url: 'https://lh3.googleusercontent.com/rd-gg-dl/token=s0-d-I?authuser=1&alr=yes'
+    }),
+    true
+  );
+  assert.deepEqual(
+    gate.getRecentActionContext({
+      url: 'https://lh3.googleusercontent.com/rd-gg-dl/token=s0-d-I?authuser=1&alr=yes'
+    }),
+    actionContext
+  );
+  assert.equal(
+    gate.hasRecentIntent({
+      url: 'https://lh3.googleusercontent.com/rd-gg/token=s0-rj?authuser=1&alr=yes'
+    }),
+    false
+  );
+});
+
 test('createGeminiDownloadIntentGate should expose getRecentActionContext as the primary accessor', () => {
   let now = 100;
   const listeners = new Map();
@@ -805,6 +895,69 @@ test('createGeminiDownloadFetchHook should bypass targeted Gemini asset requests
     'https://lh3.googleusercontent.com/rd-gg/token=s1024',
     'https://lh3.googleusercontent.com/rd-gg/token=s0'
   ]);
+});
+
+test('installGeminiDownloadHook should keep processing Gemini download asset requests after the base intent window for explicit download actions', async () => {
+  let now = 100;
+  const listeners = new Map();
+  let processCalls = 0;
+  const targetWindow = {
+    fetch: async () => new Response(new Blob(['original'], { type: 'image/png' }), {
+      status: 200,
+      headers: { 'content-type': 'image/png' }
+    }),
+    addEventListener(type, listener) {
+      listeners.set(type, listener);
+    },
+    removeEventListener(type) {
+      listeners.delete(type);
+    }
+  };
+  const intentGate = createGeminiDownloadIntentGate({
+    targetWindow,
+    now: () => now,
+    windowMs: 5000,
+    resolveActionContext: () => ({
+      action: 'download',
+      sessionKey: 'draft:rc_install_sticky_download_window',
+      assetIds: {
+        responseId: 'r_install_sticky_download_window',
+        draftId: 'rc_install_sticky_download_window',
+        conversationId: 'c_install_sticky_download_window'
+      }
+    })
+  });
+
+  installGeminiDownloadHook(targetWindow, {
+    intentGate,
+    originalFetch: targetWindow.fetch,
+    isTargetUrl: isGeminiOriginalAssetUrl,
+    normalizeUrl: () => 'https://lh3.googleusercontent.com/rd-gg-dl/token=s0-d-I',
+    processBlob: async () => {
+      processCalls += 1;
+      return new Blob(['processed'], { type: 'image/png' });
+    }
+  });
+
+  listeners.get('click')?.({
+    target: {
+      closest() {
+        return {
+          getAttribute(name) {
+            return name === 'aria-label' ? 'Download image' : '';
+          },
+          textContent: ''
+        };
+      }
+    }
+  });
+
+  now += 6000;
+
+  const response = await targetWindow.fetch('https://lh3.googleusercontent.com/rd-gg-dl/token=s1024-d-I');
+
+  assert.equal(await response.text(), 'processed');
+  assert.equal(processCalls, 1);
 });
 
 test('isGeminiDownloadRpcUrl should only match Gemini batchexecute download rpc requests', () => {
@@ -917,6 +1070,146 @@ test('extractGeminiAssetBindingsFromResponseText should align response order wit
       responseId: 'r_8a95cf3da7dcab7d',
       draftId: 'rc_33808c0f8008f500',
       conversationId: 'c_cdec91057e5fdcaf'
+    }
+  }]);
+});
+
+test('extractGeminiAssetBindingsFromResponseText should prefer parsed draft-id matches when later history tuples complete the response binding', () => {
+  const historyPayload = [[
+    ['c_d3cd7d14852ecd3b', 'r_ecd789e187b4c4b2'],
+    ['c_d3cd7d14852ecd3b', 'r_35365858287e3a62', 'rc_5f608bd973202fb4'],
+    ['c_d3cd7d14852ecd3b', 'r_9c04fbd9e3211afa', 'rc_acb9ecbca3658e44'],
+    [['ignored metadata'], 1, null, 0, 'debug', 0, 14, null, false, null, []],
+    [[[
+      'rc_5f608bd973202fb4',
+      ['http://googleusercontent.com/image_generation_content/1'],
+      [null, null, null, null, [null, null, 8]],
+      null,
+      null,
+      null,
+      null,
+      null,
+      [2],
+      'und',
+      null,
+      null,
+      [null, null, null, null, null, null, [3], [[[[null, null, null, [
+        null,
+        1,
+        'first.png',
+        'https://lh3.googleusercontent.com/gg/AMW1TP-example-first'
+      ]]]]]]
+    ]]],
+    [[[
+      'rc_acb9ecbca3658e44',
+      ['http://googleusercontent.com/image_generation_content/2'],
+      [null, null, null, null, [null, null, 8]],
+      null,
+      null,
+      null,
+      null,
+      null,
+      [2],
+      'und',
+      null,
+      null,
+      [null, null, null, null, null, null, [3], [[[[null, null, null, [
+        null,
+        1,
+        'second.png',
+        'https://lh3.googleusercontent.com/gg/AMW1TP-example-second'
+      ]]]]]]
+    ]]],
+    [[[
+      'rc_4612c87a713bcafa',
+      ['http://googleusercontent.com/image_generation_content/3'],
+      [null, null, null, null, [null, null, 8]],
+      null,
+      null,
+      null,
+      null,
+      null,
+      [2],
+      'und',
+      null,
+      null,
+      [null, null, null, null, null, null, [3], [[[[null, null, null, [
+        null,
+        1,
+        'third.png',
+        'https://lh3.googleusercontent.com/gg/AMW1TP-example-third'
+      ]]]]]]
+    ]]],
+    ['c_d3cd7d14852ecd3b', 'r_ecd789e187b4c4b2', 'rc_4612c87a713bcafa']
+  ]];
+  const responseText = `)]}'\n123\n${JSON.stringify([['wrb.fr', 'hNvQHb', JSON.stringify(historyPayload), null, null, null, 'generic']])}`;
+
+  assert.deepEqual(extractGeminiAssetBindingsFromResponseText(responseText), [{
+    discoveredUrl: 'https://lh3.googleusercontent.com/gg/AMW1TP-example-first=s0',
+    assetIds: {
+      responseId: 'r_35365858287e3a62',
+      draftId: 'rc_5f608bd973202fb4',
+      conversationId: 'c_d3cd7d14852ecd3b'
+    }
+  }, {
+    discoveredUrl: 'https://lh3.googleusercontent.com/gg/AMW1TP-example-second=s0',
+    assetIds: {
+      responseId: 'r_9c04fbd9e3211afa',
+      draftId: 'rc_acb9ecbca3658e44',
+      conversationId: 'c_d3cd7d14852ecd3b'
+    }
+  }, {
+    discoveredUrl: 'https://lh3.googleusercontent.com/gg/AMW1TP-example-third=s0',
+    assetIds: {
+      responseId: 'r_ecd789e187b4c4b2',
+      draftId: 'rc_4612c87a713bcafa',
+      conversationId: 'c_d3cd7d14852ecd3b'
+    }
+  }]);
+});
+
+test('extractGeminiAssetBindingsFromResponseText should bind preview urls that live outside draft blocks to the leading response tuple and trailing draft id of each parsed history segment', () => {
+  const historyPayload = [[
+    [
+      ['c_d3cd7d14852ecd3b', 'r_ecd789e187b4c4b2'],
+      ['c_d3cd7d14852ecd3b', 'r_35365858287e3a62', 'rc_5f608bd973202fb4'],
+      ['metadata', 'https://lh3.googleusercontent.com/gg/AMW1TP-actual-shape-a'],
+      [[['rc_4612c87a713bcafa', ['http://googleusercontent.com/image_generation_content/2']]]]
+    ],
+    [
+      ['c_d3cd7d14852ecd3b', 'r_35365858287e3a62'],
+      ['c_d3cd7d14852ecd3b', 'r_9c04fbd9e3211afa', 'rc_acb9ecbca3658e44'],
+      ['metadata', 'https://lh3.googleusercontent.com/gg/AMW1TP-actual-shape-b'],
+      [[['rc_5f608bd973202fb4', ['http://googleusercontent.com/image_generation_content/3']]]]
+    ],
+    [
+      ['c_d3cd7d14852ecd3b', 'r_9c04fbd9e3211afa'],
+      ['metadata', 'https://lh3.googleusercontent.com/gg/AMW1TP-actual-shape-c'],
+      [[['rc_acb9ecbca3658e44', ['http://googleusercontent.com/image_generation_content/4']]]]
+    ]
+  ]];
+  const responseText = `)]}'\n123\n${JSON.stringify([['wrb.fr', 'hNvQHb', JSON.stringify(historyPayload), null, null, null, 'generic']])}`;
+
+  assert.deepEqual(extractGeminiAssetBindingsFromResponseText(responseText), [{
+    discoveredUrl: 'https://lh3.googleusercontent.com/gg/AMW1TP-actual-shape-a=s0',
+    assetIds: {
+      responseId: 'r_ecd789e187b4c4b2',
+      draftId: 'rc_4612c87a713bcafa',
+      conversationId: 'c_d3cd7d14852ecd3b'
+    }
+  }, {
+    discoveredUrl: 'https://lh3.googleusercontent.com/gg/AMW1TP-actual-shape-b=s0',
+    assetIds: {
+      responseId: 'r_35365858287e3a62',
+      draftId: 'rc_5f608bd973202fb4',
+      conversationId: 'c_d3cd7d14852ecd3b'
+    }
+  }, {
+    discoveredUrl: 'https://lh3.googleusercontent.com/gg/AMW1TP-actual-shape-c=s0',
+    assetIds: {
+      responseId: 'r_9c04fbd9e3211afa',
+      draftId: 'rc_acb9ecbca3658e44',
+      conversationId: 'c_d3cd7d14852ecd3b'
     }
   }]);
 });
@@ -1371,4 +1664,323 @@ test('createGeminiDownloadFetchHook should prefer provideActionContext over gett
   assert.equal(await response.text(), 'provided-action-context-full-processed');
   assert.equal(fetchCalls, 0);
   assert.equal(processCalls, 0);
+});
+
+test('createGeminiDirectDownloadActionHandler should actively download a processed original blob for download actions', async () => {
+  const { target } = createButtonLikeTarget();
+  const anchorClicks = [];
+  const appendedNodes = [];
+  const createdObjectUrls = [];
+  const revokedObjectUrls = [];
+  let seenFetch = null;
+  let seenProcessedPayload = null;
+  let seenProcessedNotification = null;
+
+  const handler = createGeminiDirectDownloadActionHandler({
+    targetWindow: {
+      document: {
+        body: {
+          appendChild(node) {
+            appendedNodes.push(node);
+          },
+          removeChild() {}
+        },
+        createElement(tagName) {
+          assert.equal(tagName, 'a');
+          return {
+            href: '',
+            download: '',
+            click() {
+              anchorClicks.push({
+                href: this.href,
+                download: this.download
+              });
+            },
+            remove() {}
+          };
+        }
+      },
+      URL: {
+        createObjectURL(blob) {
+          createdObjectUrls.push(blob);
+          return 'blob:https://gemini.google.com/direct-download';
+        },
+        revokeObjectURL(url) {
+          revokedObjectUrls.push(url);
+        }
+      }
+    },
+    resolveActionContext: () => ({
+      action: 'download',
+      sessionKey: 'draft:rc_direct_download',
+      assetIds: {
+        draftId: 'rc_direct_download'
+      },
+      resource: {
+        kind: 'original',
+        url: 'https://lh3.googleusercontent.com/rd-gg/token=s1024-rj'
+      }
+    }),
+    fetchImpl: async (url, init = {}) => {
+      seenFetch = {
+        url,
+        gwrBypass: init.gwrBypass === true
+      };
+      return new Response(new Blob(['original'], { type: 'image/png' }), {
+        status: 200,
+        statusText: 'OK',
+        headers: {
+          'content-type': 'image/png'
+        }
+      });
+    },
+    normalizeUrl: () => 'https://lh3.googleusercontent.com/rd-gg/token=s0-rj',
+    processBlob: async (blob, payload) => {
+      seenProcessedPayload = {
+        payload,
+        text: await blob.text()
+      };
+      return new Blob(['processed'], { type: 'image/png' });
+    },
+    onProcessedBlobResolved: async (payload) => {
+      seenProcessedNotification = {
+        normalizedUrl: payload.normalizedUrl,
+        processedText: await payload.processedBlob.text(),
+        sessionKey: payload.actionContext?.sessionKey
+      };
+    },
+    logger: { warn() {} }
+  });
+
+  let prevented = false;
+  let stopped = false;
+  let stoppedImmediate = false;
+  const handled = await handler({
+    target,
+    preventDefault() {
+      prevented = true;
+    },
+    stopPropagation() {
+      stopped = true;
+    },
+    stopImmediatePropagation() {
+      stoppedImmediate = true;
+    }
+  });
+
+  assert.equal(handled, true);
+  assert.equal(prevented, true);
+  assert.equal(stopped, true);
+  assert.equal(stoppedImmediate, true);
+  assert.deepEqual(seenFetch, {
+    url: 'https://lh3.googleusercontent.com/rd-gg/token=s0-rj',
+    gwrBypass: true
+  });
+  assert.equal(seenProcessedPayload.text, 'original');
+  assert.deepEqual(seenProcessedPayload.payload, {
+    url: 'https://lh3.googleusercontent.com/rd-gg/token=s1024-rj',
+    normalizedUrl: 'https://lh3.googleusercontent.com/rd-gg/token=s0-rj',
+    responseStatus: 200,
+    responseStatusText: 'OK',
+    responseHeaders: {
+      'content-type': 'image/png'
+    },
+    actionContext: {
+      action: 'download',
+      sessionKey: 'draft:rc_direct_download',
+      assetIds: {
+        draftId: 'rc_direct_download'
+      },
+      resource: {
+        kind: 'original',
+        url: 'https://lh3.googleusercontent.com/rd-gg/token=s1024-rj'
+      }
+    }
+  });
+  assert.deepEqual(seenProcessedNotification, {
+    normalizedUrl: 'https://lh3.googleusercontent.com/rd-gg/token=s0-rj',
+    processedText: 'processed',
+    sessionKey: 'draft:rc_direct_download'
+  });
+  assert.equal(appendedNodes.length, 1);
+  assert.deepEqual(anchorClicks, [{
+    href: 'blob:https://gemini.google.com/direct-download',
+    download: 'gemini-image.png'
+  }]);
+  assert.equal(createdObjectUrls.length, 1);
+  assert.deepEqual(revokedObjectUrls, ['blob:https://gemini.google.com/direct-download']);
+});
+
+test('createGeminiDirectDownloadActionHandler should support userscript-side blob fetching for cross-origin Gemini assets', async () => {
+  const { target } = createButtonLikeTarget();
+  const anchorClicks = [];
+  const createdObjectUrls = [];
+  let fetchCalls = 0;
+  let seenProcessedPayload = null;
+
+  const handler = createGeminiDirectDownloadActionHandler({
+    targetWindow: {
+      document: {
+        body: {
+          appendChild() {},
+          removeChild() {}
+        },
+        createElement(tagName) {
+          assert.equal(tagName, 'a');
+          return {
+            href: '',
+            download: '',
+            click() {
+              anchorClicks.push({
+                href: this.href,
+                download: this.download
+              });
+            },
+            remove() {}
+          };
+        }
+      },
+      URL: {
+        createObjectURL(blob) {
+          createdObjectUrls.push(blob);
+          return 'blob:https://gemini.google.com/direct-download';
+        },
+        revokeObjectURL() {}
+      }
+    },
+    resolveActionContext: () => ({
+      action: 'download',
+      sessionKey: 'draft:rc_direct_download_cross_origin',
+      assetIds: {
+        draftId: 'rc_direct_download_cross_origin'
+      },
+      resource: {
+        kind: 'original',
+        url: 'https://lh3.googleusercontent.com/gg/token=s0'
+      }
+    }),
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      throw new Error('page fetch should not run');
+    },
+    fetchBlobImpl: async (url) => {
+      assert.equal(url, 'https://lh3.googleusercontent.com/gg/token=s0');
+      return new Blob(['original'], { type: 'image/png' });
+    },
+    normalizeUrl: (url) => url,
+    processBlob: async (blob, payload) => {
+      seenProcessedPayload = {
+        payload,
+        text: await blob.text()
+      };
+      return new Blob(['processed'], { type: 'image/png' });
+    },
+    logger: { warn() {} }
+  });
+
+  const handled = await handler({
+    target,
+    preventDefault() {},
+    stopPropagation() {},
+    stopImmediatePropagation() {}
+  });
+
+  assert.equal(handled, true);
+  assert.equal(fetchCalls, 0);
+  assert.equal(seenProcessedPayload.text, 'original');
+  assert.deepEqual(seenProcessedPayload.payload, {
+    url: 'https://lh3.googleusercontent.com/gg/token=s0',
+    normalizedUrl: 'https://lh3.googleusercontent.com/gg/token=s0',
+    responseStatus: 200,
+    responseStatusText: 'OK',
+    responseHeaders: {
+      'content-type': 'image/png'
+    },
+    actionContext: {
+      action: 'download',
+      sessionKey: 'draft:rc_direct_download_cross_origin',
+      assetIds: {
+        draftId: 'rc_direct_download_cross_origin'
+      },
+      resource: {
+        kind: 'original',
+        url: 'https://lh3.googleusercontent.com/gg/token=s0'
+      }
+    }
+  });
+  assert.deepEqual(anchorClicks, [{
+    href: 'blob:https://gemini.google.com/direct-download',
+    download: 'gemini-image.png'
+  }]);
+  assert.equal(createdObjectUrls.length, 1);
+});
+
+test('createGeminiDirectDownloadActionHandler should fail closed when the original asset is unavailable', async () => {
+  const { target } = createButtonLikeTarget();
+  let seenFailure = null;
+  let fetchCalls = 0;
+
+  const handler = createGeminiDirectDownloadActionHandler({
+    targetWindow: {
+      document: {
+        body: {
+          appendChild() {
+            throw new Error('should not append anchor');
+          }
+        },
+        createElement() {
+          throw new Error('should not create anchor');
+        }
+      },
+      URL: {
+        createObjectURL() {
+          throw new Error('should not create object url');
+        },
+        revokeObjectURL() {}
+      }
+    },
+    resolveActionContext: () => ({
+      action: 'download',
+      sessionKey: 'draft:rc_missing_original',
+      assetIds: {
+        draftId: 'rc_missing_original'
+      },
+      resource: {
+        kind: 'preview',
+        url: 'blob:https://gemini.google.com/preview-only'
+      }
+    }),
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return new Response(new Blob(['original'], { type: 'image/png' }), {
+        status: 200,
+        headers: { 'content-type': 'image/png' }
+      });
+    },
+    normalizeUrl: (url) => url,
+    processBlob: async () => {
+      throw new Error('should not process');
+    },
+    onActionCriticalFailure: async (payload) => {
+      seenFailure = {
+        message: payload.error?.message || '',
+        sessionKey: payload.actionContext?.sessionKey
+      };
+    },
+    logger: { warn() {} }
+  });
+
+  const handled = await handler({
+    target,
+    preventDefault() {},
+    stopPropagation() {},
+    stopImmediatePropagation() {}
+  });
+
+  assert.equal(handled, true);
+  assert.equal(fetchCalls, 0);
+  assert.deepEqual(seenFailure, {
+    message: 'Original image is unavailable for download processing',
+    sessionKey: 'draft:rc_missing_original'
+  });
 });

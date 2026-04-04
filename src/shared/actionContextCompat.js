@@ -41,13 +41,13 @@ export function appendCompatibleActionContext(payload = {}, actionContext = null
   };
 }
 
-export function getActionContextFromIntentGate(intentGate = null) {
+export function getActionContextFromIntentGate(intentGate = null, candidate = null) {
   if (!intentGate || typeof intentGate !== 'object') {
     return null;
   }
 
   if (typeof intentGate.getRecentActionContext === 'function') {
-    return intentGate.getRecentActionContext();
+    return intentGate.getRecentActionContext(candidate);
   }
 
   return null;

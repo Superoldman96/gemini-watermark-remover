@@ -159,6 +159,79 @@ function createBlobResultFromResponse(result = {}) {
   };
 }
 
+function sanitizeSerializableAssetIds(assetIds = null) {
+  if (!assetIds || typeof assetIds !== 'object') {
+    return null;
+  }
+
+  const sanitized = {};
+  for (const key of ['responseId', 'draftId', 'conversationId']) {
+    if (typeof assetIds[key] === 'string' && assetIds[key].trim()) {
+      sanitized[key] = assetIds[key].trim();
+    }
+  }
+
+  return Object.keys(sanitized).length > 0 ? sanitized : null;
+}
+
+function sanitizeSerializableResource(resource = null) {
+  if (!resource || typeof resource !== 'object') {
+    return null;
+  }
+
+  const sanitized = {};
+  for (const key of ['kind', 'url', 'mimeType', 'source', 'slot']) {
+    if (typeof resource[key] === 'string' && resource[key].trim()) {
+      sanitized[key] = resource[key].trim();
+    }
+  }
+  if (resource.processedMeta != null) {
+    sanitized.processedMeta = resource.processedMeta;
+  }
+
+  return Object.keys(sanitized).length > 0 ? sanitized : null;
+}
+
+function sanitizeSerializableActionContext(actionContext = null) {
+  if (!actionContext || typeof actionContext !== 'object') {
+    return null;
+  }
+
+  const sanitized = {};
+  if (typeof actionContext.action === 'string' && actionContext.action.trim()) {
+    sanitized.action = actionContext.action.trim();
+  }
+  if (typeof actionContext.sessionKey === 'string' && actionContext.sessionKey.trim()) {
+    sanitized.sessionKey = actionContext.sessionKey.trim();
+  }
+
+  const assetIds = sanitizeSerializableAssetIds(actionContext.assetIds);
+  if (assetIds) {
+    sanitized.assetIds = assetIds;
+  }
+
+  const resource = sanitizeSerializableResource(actionContext.resource);
+  if (resource) {
+    sanitized.resource = resource;
+  }
+
+  return Object.keys(sanitized).length > 0 ? sanitized : null;
+}
+
+function sanitizePageProcessOptions(options = {}) {
+  if (!options || typeof options !== 'object') {
+    return {};
+  }
+
+  const sanitized = { ...options };
+  const actionContext = sanitizeSerializableActionContext(options.actionContext);
+  delete sanitized.actionContext;
+  if (actionContext) {
+    sanitized.actionContext = actionContext;
+  }
+  return sanitized;
+}
+
 export function createPageProcessBridgeClient({
   targetWindow = globalThis.window || null,
   timeoutMs = 120000,
@@ -182,6 +255,7 @@ export function createPageProcessBridgeClient({
 
     const inputBuffer = await blob.arrayBuffer();
     const requestId = createRequestId();
+    const sanitizedOptions = sanitizePageProcessOptions(options);
 
     try {
       return await new Promise((resolve, reject) => {
@@ -221,7 +295,7 @@ export function createPageProcessBridgeClient({
           action,
           inputBuffer,
           mimeType: blob.type || 'image/png',
-          options: options || {}
+          options: sanitizedOptions
         }, '*', [inputBuffer]);
       });
     } catch (error) {

@@ -33,6 +33,31 @@ function createMockWindow() {
   return windowLike;
 }
 
+function createStructuredCloneWindow() {
+  const listeners = new Set();
+  const windowLike = {
+    addEventListener(type, listener) {
+      if (type !== 'message') return;
+      listeners.add(listener);
+    },
+    removeEventListener(type, listener) {
+      if (type !== 'message') return;
+      listeners.delete(listener);
+    },
+    postMessage(message) {
+      const clonedMessage = structuredClone(message);
+      const event = {
+        data: clonedMessage,
+        source: windowLike
+      };
+      for (const listener of [...listeners]) {
+        listener(event);
+      }
+    }
+  };
+  return windowLike;
+}
+
 test('createPageProcessBridgeServer should process watermark requests and reply with meta', async () => {
   const mockWindow = createMockWindow();
   installPageProcessBridge({
@@ -182,4 +207,84 @@ test('page process bridge should accept wrapped same-window sources across realm
   const result = await client.processWatermarkBlob(new Blob(['raw'], { type: 'image/png' }));
   assert.equal(await result.processedBlob.text(), 'raw-wrapped');
   assert.deepEqual(result.processedMeta, { source: 'wrapped-window' });
+});
+
+test('createPageProcessBridgeClient should sanitize actionContext before postMessage', async () => {
+  const mockWindow = createStructuredCloneWindow();
+  let seenOptions = null;
+
+  installPageProcessBridge({
+    targetWindow: mockWindow,
+    logger: { warn() {} },
+    processWatermarkBlob: async () => {
+      throw new Error('should not call process path');
+    },
+    removeWatermarkFromBlob: async (blob, options = {}) => {
+      seenOptions = options;
+      return new Blob([await blob.text() + '-sanitized'], { type: 'image/png' });
+    }
+  });
+
+  const client = createPageProcessBridgeClient({
+    targetWindow: mockWindow,
+    logger: { warn() {} },
+    fallbackProcessWatermarkBlob: async () => {
+      throw new Error('should not fallback');
+    },
+    fallbackRemoveWatermarkFromBlob: async () => new Blob(['fallback'], { type: 'image/png' })
+  });
+
+  const result = await client.removeWatermarkFromBlob(new Blob(['raw'], { type: 'image/png' }), {
+    adaptiveMode: 'always',
+    actionContext: {
+      action: 'download',
+      sessionKey: 'draft:rc_bridge_sanitize',
+      assetIds: {
+        responseId: 'r_bridge_sanitize',
+        draftId: 'rc_bridge_sanitize',
+        conversationId: 'c_bridge_sanitize'
+      },
+      target: {
+        click() {}
+      },
+      imageElement: {
+        remove() {}
+      },
+      resource: {
+        kind: 'processed',
+        url: 'blob:https://gemini.google.com/full-processed',
+        mimeType: 'image/png',
+        source: 'original-download',
+        slot: 'full',
+        blob: new Blob(['processed'], { type: 'image/png' }),
+        processedMeta: {
+          source: 'page-runtime'
+        }
+      }
+    }
+  });
+
+  assert.equal(await result.text(), 'raw-sanitized');
+  assert.deepEqual(seenOptions, {
+    adaptiveMode: 'always',
+    actionContext: {
+      action: 'download',
+      sessionKey: 'draft:rc_bridge_sanitize',
+      assetIds: {
+        responseId: 'r_bridge_sanitize',
+        draftId: 'rc_bridge_sanitize',
+        conversationId: 'c_bridge_sanitize'
+      },
+      resource: {
+        kind: 'processed',
+        url: 'blob:https://gemini.google.com/full-processed',
+        mimeType: 'image/png',
+        source: 'original-download',
+        slot: 'full',
+        processedMeta: {
+          source: 'page-runtime'
+        }
+      }
+    }
+  });
 });
