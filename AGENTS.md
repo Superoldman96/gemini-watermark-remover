@@ -40,6 +40,7 @@ Do this only once in the fixed profile:
 - Local dist server: dev mode or the active local build server for this worktree
 - Current confirmed dev server during request-layer debugging: `http://127.0.0.1:4317/`
 - Probe smoke test: `pnpm probe:tm`
+- Installed userscript freshness check: `pnpm probe:tm:freshness`
 - Open fixed profile: `pnpm probe:tm:profile`
 
 ### Installed Userscript Freshness Check
@@ -51,14 +52,25 @@ When real-page behavior does not match the current worktree, verify the installe
   - `[Gemini Watermark Remover] Initializing...`
   - `[Gemini Watermark Remover] Ready`
   - while silently missing newer request-layer fixes such as the download sticky intent window
-- If the real page shows old behavior after a reinstall:
+- Preferred check:
   1. Open the Tampermonkey editor for `Gemini NanoBanana 图片水印移除`
-  2. Compare the installed source against `dist/userscript/gemini-watermark-remover.user.js`
-  3. Confirm the installed source contains the expected newer markers before continuing real-page debugging
+  2. Run `pnpm probe:tm:freshness`
+  3. Read `.artifacts/tampermonkey-freshness/latest.json`
+- If you just reinstalled the userscript and the check still reports `stale`, refresh the already-open Tampermonkey editor page once, then run `pnpm probe:tm:freshness` again.
+- Current command behavior:
+  - exits `0` when the installed userscript exactly matches the local `dist/userscript/gemini-watermark-remover.user.js`
+  - exits `1` when the installed userscript is stale or mismatched
+  - compares full normalized source hashes, not just `@version`
+  - also reports whether expected markers are missing
+- Current report path:
+  - `.artifacts/tampermonkey-freshness/latest.json`
+- Manual fallback if needed:
+  1. Compare the installed source against `dist/userscript/gemini-watermark-remover.user.js`
+  2. Confirm the installed source contains the expected newer markers before continuing real-page debugging
      - `DEFAULT_DOWNLOAD_STICKY_WINDOW_MS`
      - `downloadStickyUntil`
      - `getActionContextFromIntentGate(intentGate = null, candidate = null)`
-  4. Refresh the real Gemini page after the fixed profile is updated
+  3. Refresh the real Gemini page after the fixed profile is updated
 
 ### Real Gemini Page Validation
 
