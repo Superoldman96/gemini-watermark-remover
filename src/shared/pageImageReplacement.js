@@ -373,13 +373,6 @@ function resolveRememberedProcessedPreviewResult(sourceUrl = '') {
   return previewProcessedResultRegistry.get(normalizedSourceUrl) || null;
 }
 
-function resolveSingleRememberedProcessedPreviewResult() {
-  if (previewProcessedResultRegistry.size !== 1) {
-    return null;
-  }
-  return previewProcessedResultRegistry.values().next().value || null;
-}
-
 function createPreviewCandidateProcessor(processWatermarkBlobImpl, processingOptions = null) {
   return async (candidate) => {
     const originalBlob = await candidate.getOriginalBlob();
@@ -1943,31 +1936,11 @@ export function bindProcessedPreviewResultToImages({
   }
 
   let updatedCount = 0;
-  const unboundBlobCandidates = [];
   for (const imageElement of collectBindableImages(root)) {
     const candidateSourceUrl = normalizeGoogleusercontentImageUrl(resolveCandidateImageUrl(imageElement) || '');
     if (candidateSourceUrl !== normalizedSourceUrl) {
-      const currentSourceUrl = String(resolveCandidateImageUrl(imageElement) || '').trim();
-      const hasExplicitSourceUrl = typeof imageElement?.dataset?.gwrSourceUrl === 'string'
-        && imageElement.dataset.gwrSourceUrl.trim();
-      if (!hasExplicitSourceUrl && currentSourceUrl.startsWith('blob:')) {
-        unboundBlobCandidates.push(imageElement);
-      }
       continue;
     }
-    const dataset = imageElement.dataset || (imageElement.dataset = {});
-    dataset.gwrSourceUrl ||= normalizedSourceUrl;
-    applyReadyImageState(imageElement, processedBlob, {
-      imageSessionStore,
-      processedMeta,
-      processedFrom,
-      processedSlot: 'preview'
-    });
-    updatedCount += 1;
-  }
-
-  if (updatedCount === 0 && unboundBlobCandidates.length === 1) {
-    const imageElement = unboundBlobCandidates[0];
     const dataset = imageElement.dataset || (imageElement.dataset = {});
     dataset.gwrSourceUrl ||= normalizedSourceUrl;
     applyReadyImageState(imageElement, processedBlob, {
@@ -2043,26 +2016,6 @@ export function createPageImageReplacementController({
       const rememberedPreviewResult = resolveRememberedProcessedPreviewResult(candidateUrl);
       if (!rememberedPreviewResult) {
         continue;
-      }
-
-      const dataset = imageElement.dataset || (imageElement.dataset = {});
-      dataset.gwrSourceUrl ||= rememberedPreviewResult.sourceUrl;
-      applyReadyImageState(imageElement, rememberedPreviewResult.processedBlob, {
-        imageSessionStore,
-        processedMeta: rememberedPreviewResult.processedMeta,
-        processedFrom: rememberedPreviewResult.processedFrom,
-        processedSlot: 'preview'
-      });
-      return true;
-    }
-
-    if (currentSourceUrl.startsWith('blob:')) {
-      if (!isPreviewImageRenderable(imageElement)) {
-        return false;
-      }
-      const rememberedPreviewResult = resolveSingleRememberedProcessedPreviewResult();
-      if (!rememberedPreviewResult) {
-        return false;
       }
 
       const dataset = imageElement.dataset || (imageElement.dataset = {});

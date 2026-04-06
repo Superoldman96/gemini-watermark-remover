@@ -1779,6 +1779,41 @@ test('bindProcessedPreviewResultToImages should apply a remembered request-layer
   });
 });
 
+test('bindProcessedPreviewResultToImages should not apply a remembered preview blob to an unbound blob image without explicit source mapping', async () => {
+  await withPageImageTestEnv(async ({ MockHTMLImageElement }) => {
+    const imageSessionStore = createImageSessionStore();
+    const image = new MockHTMLImageElement();
+    image.dataset = {};
+    image.style = {};
+    image.src = 'blob:https://gemini.google.com/runtime-preview-unbound';
+    image.currentSrc = image.src;
+    image.naturalWidth = 1024;
+    image.naturalHeight = 559;
+    image.width = 1024;
+    image.height = 559;
+    image.clientWidth = 456;
+    image.clientHeight = 249;
+
+    const processedBlob = new Blob(['processed-preview'], { type: 'image/png' });
+    const updatedCount = bindProcessedPreviewResultToImages({
+      root: {
+        querySelectorAll() {
+          return [image];
+        }
+      },
+      sourceUrl: 'https://lh3.googleusercontent.com/gg/example-preview-unbound=s1024-rj',
+      processedBlob,
+      processedFrom: 'request-preview',
+      imageSessionStore
+    });
+
+    assert.equal(updatedCount, 0);
+    assert.equal(image.dataset.gwrPageImageState, undefined);
+    assert.equal(image.dataset.gwrWatermarkObjectUrl, undefined);
+    assert.equal(image.dataset.gwrSourceUrl, undefined);
+  });
+});
+
 test('preparePageImageProcessing should reuse remembered original asset urls when RPC binding arrives before the image node', async () => {
   await withPageImageTestEnv(async ({ MockHTMLImageElement }) => {
     bindOriginalAssetUrlToImages({
@@ -2266,6 +2301,74 @@ test('createPageImageReplacementController should reuse remembered original asse
     assert.deepEqual(seenSources, ['https://lh3.googleusercontent.com/gg/example-token=s0-rj']);
     assert.equal(fullscreenImage.dataset.gwrSourceUrl, 'https://lh3.googleusercontent.com/gg/example-token=s0-rj');
     assert.equal(fullscreenImage.dataset.gwrDraftId, 'rc_hint123');
+    controller.dispose();
+  });
+});
+
+test('createPageImageReplacementController should not adopt a single remembered preview blob onto an unrelated blob image', async () => {
+  await withPageImageTestEnv(async ({ MockHTMLImageElement }) => {
+    const targetDocument = {
+      readyState: 'complete',
+      body: {},
+      documentElement: {},
+      querySelectorAll() {
+        return [];
+      },
+      addEventListener() {},
+      removeEventListener() {}
+    };
+    globalThis.MutationObserver = class {
+      observe() {}
+      disconnect() {}
+    };
+
+    const fullscreenImage = new MockHTMLImageElement();
+    fullscreenImage.dataset = {};
+    fullscreenImage.src = 'blob:https://gemini.google.com/fullscreen-unrelated';
+    fullscreenImage.currentSrc = fullscreenImage.src;
+    fullscreenImage.naturalWidth = 1024;
+    fullscreenImage.naturalHeight = 559;
+    fullscreenImage.clientWidth = 951;
+    fullscreenImage.clientHeight = 519;
+    fullscreenImage.style = {};
+    fullscreenImage.closest = () => ({});
+
+    bindProcessedPreviewResultToImages({
+      root: {
+        querySelectorAll() {
+          return [];
+        }
+      },
+      sourceUrl: 'https://lh3.googleusercontent.com/gg/example-remembered=s1024-rj',
+      processedBlob: new Blob(['processed-preview'], { type: 'image/png' }),
+      processedFrom: 'request-preview'
+    });
+
+    const seenSources = [];
+    const controller = createPageImageReplacementController({
+      logger: createSilentLogger(),
+      targetDocument,
+      processPageImageSourceImpl: async ({ sourceUrl }) => {
+        seenSources.push(sourceUrl);
+        return {
+          skipped: true,
+          reason: 'test-stop'
+        };
+      }
+    });
+
+    controller.install();
+    controller.processRoot({
+      querySelectorAll() {
+        return [fullscreenImage];
+      }
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(seenSources, []);
+    assert.equal(fullscreenImage.dataset.gwrWatermarkObjectUrl, undefined);
+    assert.equal(fullscreenImage.dataset.gwrSourceUrl, undefined);
     controller.dispose();
   });
 });
