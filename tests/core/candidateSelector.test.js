@@ -280,6 +280,35 @@ test('pickBetterCandidate should preserve a strong default anchor against weak s
     assert.equal(selected, defaultAnchorCandidate);
 });
 
+test('pickBetterCandidate should preserve a clean default anchor against weaker warp evidence', () => {
+    const defaultAnchorCandidate = {
+        accepted: true,
+        source: 'standard',
+        provenance: null,
+        validationCost: 0.27,
+        improvement: 0.55,
+        originalSpatialScore: 0.29,
+        originalGradientScore: 0.53,
+        processedSpatialScore: -0.26,
+        processedGradientScore: 0.006
+    };
+    const weakWarpCandidate = {
+        accepted: true,
+        source: 'standard+warp',
+        provenance: null,
+        validationCost: 0.19,
+        improvement: 0.18,
+        originalSpatialScore: 0.17,
+        originalGradientScore: 0.04,
+        processedSpatialScore: -0.03,
+        processedGradientScore: 0.041
+    };
+
+    const selected = pickBetterCandidate(defaultAnchorCandidate, weakWarpCandidate, 0.002);
+
+    assert.equal(selected, defaultAnchorCandidate);
+});
+
 test('assessReferenceTextureAlignment should mark a candidate unsafe when it is both darker and flatter than the local reference', () => {
     const width = 96;
     const height = 96;

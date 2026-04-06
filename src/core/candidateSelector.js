@@ -367,7 +367,14 @@ function isStandardCandidateSource(candidate) {
 }
 
 function shouldPreserveStrongStandardAnchor(currentBest, candidate) {
-    if (candidate?.provenance?.localShift !== true && candidate?.provenance?.sizeJitter !== true) return false;
+    const candidateIsDriftedStandard =
+        isStandardCandidateSource(candidate) &&
+        (
+            candidate?.provenance?.localShift === true ||
+            candidate?.provenance?.sizeJitter === true ||
+            String(candidate?.source || '').includes('+warp')
+        );
+    if (!candidateIsDriftedStandard) return false;
     if (currentBest?.provenance?.localShift === true) return false;
     if (!isStandardCandidateSource(currentBest) || !isStandardCandidateSource(candidate)) return false;
 
