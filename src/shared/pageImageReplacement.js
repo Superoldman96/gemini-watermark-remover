@@ -1,7 +1,7 @@
 import { canvasToBlob } from '../core/canvasBlob.js';
 import { classifyGeminiAttributionFromWatermarkMeta } from '../core/watermarkDecisionPolicy.js';
 import {
-  isGeminiPreviewAssetUrl,
+  isGeminiDisplayPreviewAssetUrl,
   normalizeGoogleusercontentImageUrl
 } from '../userscript/urlUtils.js';
 import { normalizeErrorMessage } from './errorUtils.js';
@@ -38,6 +38,12 @@ const CONTAINER_CAPTURE_AREA_RATIO = 4;
 const processingOverlayState = new WeakMap();
 const previewOverlayState = new WeakMap();
 const originalAssetUrlRegistry = new Map();
+const previewProcessedResultRegistry = new Map();
+
+export function resetPageImageReplacementRegistriesForTests() {
+  originalAssetUrlRegistry.clear();
+  previewProcessedResultRegistry.clear();
+}
 
 function appendLog(onLog, type, payload = {}) {
   if (typeof onLog === 'function') {
@@ -66,7 +72,7 @@ function shouldTreatPageImageSourceAsPreview(imageElement, sourceUrl = '') {
     return true;
   }
 
-  if (!isGeminiPreviewAssetUrl(sourceUrl)) {
+  if (!isGeminiDisplayPreviewAssetUrl(sourceUrl)) {
     return false;
   }
 
@@ -333,6 +339,45 @@ function resolveRememberedOriginalAssetUrl(assetIds = null) {
   }
 
   return '';
+}
+
+function rememberProcessedPreviewResult(sourceUrl = '', payload = {}) {
+  const normalizedSourceUrl = typeof sourceUrl === 'string'
+    ? normalizeGoogleusercontentImageUrl(sourceUrl.trim())
+    : '';
+  const processedBlob = payload?.processedBlob instanceof Blob
+    ? payload.processedBlob
+    : null;
+  if (!normalizedSourceUrl || !processedBlob) {
+    return '';
+  }
+
+  previewProcessedResultRegistry.set(normalizedSourceUrl, {
+    sourceUrl: normalizedSourceUrl,
+    processedBlob,
+    processedMeta: payload?.processedMeta ?? null,
+    processedFrom: typeof payload?.processedFrom === 'string' && payload.processedFrom.trim()
+      ? payload.processedFrom.trim()
+      : 'request-preview'
+  });
+  return normalizedSourceUrl;
+}
+
+function resolveRememberedProcessedPreviewResult(sourceUrl = '') {
+  const normalizedSourceUrl = typeof sourceUrl === 'string'
+    ? normalizeGoogleusercontentImageUrl(sourceUrl.trim())
+    : '';
+  if (!normalizedSourceUrl) {
+    return null;
+  }
+  return previewProcessedResultRegistry.get(normalizedSourceUrl) || null;
+}
+
+function resolveSingleRememberedProcessedPreviewResult() {
+  if (previewProcessedResultRegistry.size !== 1) {
+    return null;
+  }
+  return previewProcessedResultRegistry.values().next().value || null;
 }
 
 function createPreviewCandidateProcessor(processWatermarkBlobImpl, processingOptions = null) {
@@ -984,7 +1029,7 @@ export async function processPageImageSource({
 }) {
   const treatAsPreviewSource = shouldTreatPageImageSourceAsPreview(imageElement, sourceUrl);
   if (treatAsPreviewSource) {
-    if (!isBlobPageImageSource(sourceUrl) && isGeminiPreviewAssetUrl(sourceUrl)) {
+    if (!isBlobPageImageSource(sourceUrl) && isGeminiDisplayPreviewAssetUrl(sourceUrl)) {
       try {
         return await processOriginalPageImageSource({
           sourceUrl,
@@ -1022,7 +1067,7 @@ export async function processPageImageSource({
     fetchBlobDirectImpl,
     validateBlob,
     fetchBlobFromBackgroundImpl,
-    preferRenderedCaptureForPreview: isGeminiPreviewAssetUrl(sourceUrl) && !hasExplicitBoundSourceUrl(imageElement, sourceUrl)
+    preferRenderedCaptureForPreview: isGeminiDisplayPreviewAssetUrl(sourceUrl) && !hasExplicitBoundSourceUrl(imageElement, sourceUrl)
   });
 }
 
@@ -1557,7 +1602,11 @@ export function preparePageImageProcessing(imageElement, {
   revokeTrackedObjectUrlImpl = revokeTrackedObjectUrl,
   showProcessingOverlayImpl = showProcessingOverlay
 } = {}) {
-  if (typeof HTMLImageElementClass !== 'function' || !(imageElement instanceof HTMLImageElementClass)) {
+  const isHtmlImageElement = typeof HTMLImageElementClass === 'function'
+    && imageElement instanceof HTMLImageElementClass;
+  const isImageLikeElement = typeof imageElement?.tagName === 'string'
+    && imageElement.tagName.toUpperCase() === 'IMG';
+  if (!isHtmlImageElement && !isImageLikeElement) {
     return null;
   }
   if (typeof isProcessableImage === 'function' && !isProcessableImage(imageElement)) {
@@ -1604,6 +1653,16 @@ export function preparePageImageProcessing(imageElement, {
   const isPreviewSource = shouldTreatPageImageSourceAsPreview(imageElement, sourceUrl);
   if (sessionKey) {
     imageSessionStore.attachElement?.(sessionKey, surfaceType, imageElement);
+    if (isPreviewSource) {
+      const existingPreviewResource = imageSessionStore.getBestResource?.(sessionKey, 'display') || null;
+      if (
+        existingPreviewResource?.kind === 'processed'
+        && existingPreviewResource.slot === 'preview'
+        && existingPreviewResource.source === 'request-preview'
+      ) {
+        return null;
+      }
+    }
     imageSessionStore.updateSourceSnapshot?.(sessionKey, {
       sourceUrl,
       isPreviewSource
@@ -1839,9 +1898,84 @@ export function bindOriginalAssetUrlToImages({
 
     const dataset = imageElement.dataset || (imageElement.dataset = {});
     if (dataset.gwrSourceUrl === normalizedSourceUrl) {
+      const rememberedPreviewResult = resolveRememberedProcessedPreviewResult(normalizedSourceUrl);
+      if (rememberedPreviewResult) {
+        applyReadyImageState(imageElement, rememberedPreviewResult.processedBlob, {
+          imageSessionStore,
+          processedMeta: rememberedPreviewResult.processedMeta,
+          processedFrom: rememberedPreviewResult.processedFrom,
+          processedSlot: 'preview'
+        });
+      }
       continue;
     }
     dataset.gwrSourceUrl = normalizedSourceUrl;
+    const rememberedPreviewResult = resolveRememberedProcessedPreviewResult(normalizedSourceUrl);
+    if (rememberedPreviewResult) {
+      applyReadyImageState(imageElement, rememberedPreviewResult.processedBlob, {
+        imageSessionStore,
+        processedMeta: rememberedPreviewResult.processedMeta,
+        processedFrom: rememberedPreviewResult.processedFrom,
+        processedSlot: 'preview'
+      });
+    }
+    updatedCount += 1;
+  }
+
+  return updatedCount;
+}
+
+export function bindProcessedPreviewResultToImages({
+  root = document,
+  sourceUrl = '',
+  processedBlob = null,
+  processedMeta = null,
+  processedFrom = 'request-preview',
+  imageSessionStore = getDefaultImageSessionStore()
+} = {}) {
+  const normalizedSourceUrl = rememberProcessedPreviewResult(sourceUrl, {
+    processedBlob,
+    processedMeta,
+    processedFrom
+  });
+  if (!root || !normalizedSourceUrl || !(processedBlob instanceof Blob)) {
+    return 0;
+  }
+
+  let updatedCount = 0;
+  const unboundBlobCandidates = [];
+  for (const imageElement of collectBindableImages(root)) {
+    const candidateSourceUrl = normalizeGoogleusercontentImageUrl(resolveCandidateImageUrl(imageElement) || '');
+    if (candidateSourceUrl !== normalizedSourceUrl) {
+      const currentSourceUrl = String(resolveCandidateImageUrl(imageElement) || '').trim();
+      const hasExplicitSourceUrl = typeof imageElement?.dataset?.gwrSourceUrl === 'string'
+        && imageElement.dataset.gwrSourceUrl.trim();
+      if (!hasExplicitSourceUrl && currentSourceUrl.startsWith('blob:')) {
+        unboundBlobCandidates.push(imageElement);
+      }
+      continue;
+    }
+    const dataset = imageElement.dataset || (imageElement.dataset = {});
+    dataset.gwrSourceUrl ||= normalizedSourceUrl;
+    applyReadyImageState(imageElement, processedBlob, {
+      imageSessionStore,
+      processedMeta,
+      processedFrom,
+      processedSlot: 'preview'
+    });
+    updatedCount += 1;
+  }
+
+  if (updatedCount === 0 && unboundBlobCandidates.length === 1) {
+    const imageElement = unboundBlobCandidates[0];
+    const dataset = imageElement.dataset || (imageElement.dataset = {});
+    dataset.gwrSourceUrl ||= normalizedSourceUrl;
+    applyReadyImageState(imageElement, processedBlob, {
+      imageSessionStore,
+      processedMeta,
+      processedFrom,
+      processedSlot: 'preview'
+    });
     updatedCount += 1;
   }
 
@@ -1892,6 +2026,59 @@ export function createPageImageReplacementController({
   let drainActive = false;
   let recentImageSourceHint = null;
 
+  function tryApplyRememberedPreviewResult(imageElement) {
+    if (!imageElement || typeof imageElement !== 'object') {
+      return false;
+    }
+
+    const currentSourceUrl = String(resolveCandidateImageUrl(imageElement) || '').trim();
+    const datasetSourceUrl = typeof imageElement?.dataset?.gwrSourceUrl === 'string'
+      ? imageElement.dataset.gwrSourceUrl.trim()
+      : '';
+    const stableSourceUrl = typeof imageElement?.dataset?.gwrStableSource === 'string'
+      ? imageElement.dataset.gwrStableSource.trim()
+      : '';
+    const candidateUrls = [datasetSourceUrl, stableSourceUrl, currentSourceUrl].filter(Boolean);
+    for (const candidateUrl of candidateUrls) {
+      const rememberedPreviewResult = resolveRememberedProcessedPreviewResult(candidateUrl);
+      if (!rememberedPreviewResult) {
+        continue;
+      }
+
+      const dataset = imageElement.dataset || (imageElement.dataset = {});
+      dataset.gwrSourceUrl ||= rememberedPreviewResult.sourceUrl;
+      applyReadyImageState(imageElement, rememberedPreviewResult.processedBlob, {
+        imageSessionStore,
+        processedMeta: rememberedPreviewResult.processedMeta,
+        processedFrom: rememberedPreviewResult.processedFrom,
+        processedSlot: 'preview'
+      });
+      return true;
+    }
+
+    if (currentSourceUrl.startsWith('blob:')) {
+      if (!isPreviewImageRenderable(imageElement)) {
+        return false;
+      }
+      const rememberedPreviewResult = resolveSingleRememberedProcessedPreviewResult();
+      if (!rememberedPreviewResult) {
+        return false;
+      }
+
+      const dataset = imageElement.dataset || (imageElement.dataset = {});
+      dataset.gwrSourceUrl ||= rememberedPreviewResult.sourceUrl;
+      applyReadyImageState(imageElement, rememberedPreviewResult.processedBlob, {
+        imageSessionStore,
+        processedMeta: rememberedPreviewResult.processedMeta,
+        processedFrom: rememberedPreviewResult.processedFrom,
+        processedSlot: 'preview'
+      });
+      return true;
+    }
+
+    return false;
+  }
+
   function cleanupRenderableWait(imageElement) {
     const state = waitingForRenderable.get(imageElement);
     if (!state) return;
@@ -1934,6 +2121,9 @@ export function createPageImageReplacementController({
 
   async function processImage(imageElement) {
     applyRecentImageSourceHintToImage(imageElement, recentImageSourceHint);
+    if (tryApplyRememberedPreviewResult(imageElement)) {
+      return;
+    }
     const currentSourceUrl = String(resolveCandidateImageUrl(imageElement) || '').trim();
     if (
       currentSourceUrl

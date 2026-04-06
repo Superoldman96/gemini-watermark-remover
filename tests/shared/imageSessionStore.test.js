@@ -188,6 +188,38 @@ test('createImageSessionStore should not treat preview-only processed resources 
   });
 });
 
+test('createImageSessionStore should keep request-layer preview resources display-only while full slot remains action-critical', () => {
+  const store = createImageSessionStore({
+    now: () => 123456
+  });
+  const previewBlob = new Blob(['preview'], { type: 'image/png' });
+  const sessionKey = store.getOrCreateByAssetIds({
+    responseId: 'r_preview_phase2',
+    draftId: 'rc_preview_phase2',
+    conversationId: 'c_preview_phase2'
+  });
+
+  store.updateProcessedResult(sessionKey, {
+    slot: 'preview',
+    objectUrl: 'blob:https://gemini.google.com/preview-phase2',
+    blob: previewBlob,
+    blobType: 'image/png',
+    processedFrom: 'request-preview'
+  });
+
+  assert.deepEqual(store.getBestResource(sessionKey, 'display'), {
+    kind: 'processed',
+    url: 'blob:https://gemini.google.com/preview-phase2',
+    blob: previewBlob,
+    mimeType: 'image/png',
+    processedMeta: null,
+    source: 'request-preview',
+    slot: 'preview'
+  });
+  assert.equal(store.getBestResource(sessionKey, 'clipboard')?.slot, undefined);
+  assert.equal(store.getBestResource(sessionKey, 'download')?.slot, undefined);
+});
+
 test('createImageSessionStore should prefer a processed preview element for clipboard-style actions', () => {
   const store = createImageSessionStore({
     now: () => 123456

@@ -8,7 +8,7 @@ import {
   normalizeWhitespace
 } from '../testUtils/moduleStructure.js';
 
-test('userscript entry should install download hooks while keeping preview replacement disabled by default', () => {
+test('userscript entry should install download hooks while keeping preview replacement enabled by default', () => {
   const source = loadModuleSource('../../src/userscript/index.js', import.meta.url);
   const installDownloadHookCall = normalizeWhitespace(getCallSource(source, 'installGeminiDownloadHook'));
   const clipboardHookCall = normalizeWhitespace(getCallSource(source, 'installGeminiClipboardImageHook'));
@@ -21,6 +21,7 @@ test('userscript entry should install download hooks while keeping preview repla
   assert.equal(hasImportedBinding(source, '../shared/pageImageReplacement.js', 'installPageImageReplacement'), true);
   assert.equal(hasImportedBinding(source, '../shared/imageSessionStore.js', 'getDefaultImageSessionStore'), true);
   assert.equal(hasImportedBinding(source, './actionContext.js', 'createGeminiActionContextResolver'), true);
+  assert.equal(hasImportedBinding(source, './actionContext.js', 'findGeminiImageElementForSourceUrl'), true);
   assert.equal(hasImportedBinding(source, './historyBindingBootstrap.js', 'requestGeminiConversationHistoryBindings'), true);
   assert.equal(hasImportedBinding(source, './processBridge.js', 'installUserscriptProcessBridge'), true);
   assert.equal(hasImportedBinding(source, './userNotice.js', 'showUserNotice'), true);
@@ -84,6 +85,35 @@ test('userscript entry should route page image processing through page runtime b
   assert.match(installPageReplacementCall, /processWatermarkBlobImpl:\s*pageProcessClient\.processWatermarkBlob/);
   assert.match(installPageReplacementCall, /removeWatermarkFromBlobImpl:\s*pageProcessClient\.removeWatermarkFromBlob/);
   assert.doesNotMatch(installPageReplacementCall, /bridgeClient\./);
+});
+
+test('userscript entry should install preview request interception while keeping DOM preview replacement enabled by default', () => {
+  const source = loadModuleSource('../../src/userscript/index.js', import.meta.url);
+  const normalized = normalizeWhitespace(source);
+
+  assert.equal(hasImportedBinding(source, './downloadHook.js', 'createGeminiDownloadFetchHook'), true);
+  assert.equal(hasImportedBinding(source, './urlUtils.js', 'isGeminiDisplayPreviewAssetUrl'), true);
+  assert.match(
+    normalized,
+    /const processPreviewBlobAtBestPath = async \(blob,\s*options = \{\}\) => \{[\s\S]*await pageProcessClient\.processWatermarkBlob\(blob,\s*options\)[\s\S]*await processingRuntime\.processWatermarkBlob\(blob,\s*options\)[\s\S]*return result\.processedBlob;\s*\}/
+  );
+  assert.match(normalized, /const previewFetch = createGeminiDownloadFetchHook\(/);
+  assert.match(normalized, /isTargetUrl:\s*isGeminiDisplayPreviewAssetUrl/);
+  assert.match(normalized, /getActionContext:\s*resolvePreviewRequestActionContext/);
+  assert.match(normalized, /processBlob:\s*processPreviewBlobAtBestPath/);
+  assert.match(normalized, /originalFetch:\s*previewFetch/);
+  assert.match(normalized, /const pageImageReplacementController = isPreviewReplacementEnabled\(targetWindow\)\s*\?\s*installPageImageReplacement\(/);
+});
+
+test('userscript entry should store request-layer preview results in the preview session slot', () => {
+  const source = loadModuleSource('../../src/userscript/index.js', import.meta.url);
+  const normalized = normalizeWhitespace(source);
+
+  assert.match(normalized, /const handlePreviewBlobResolved = \(payload = \{\}\) => \{/);
+  assert.match(normalized, /slot:\s*'preview'/);
+  assert.match(normalized, /processedFrom:\s*'request-preview'/);
+  assert.match(normalized, /onProcessedBlobResolved:\s*handlePreviewBlobResolved/);
+  assert.match(normalized, /imageSessionStore\.updateSourceSnapshot\?\.\(sessionKey,\s*\{/);
 });
 
 test('userscript entry should preserve the intent target for fullscreen clipboard fallback resolution', () => {

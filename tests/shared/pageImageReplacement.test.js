@@ -5,6 +5,7 @@ import {
   applyRecentImageSourceHintToImage,
   buildRecentImageSourceHint,
   buildPageImageSourceRequest,
+  bindProcessedPreviewResultToImages,
   bindOriginalAssetUrlToImages,
   collectCandidateImages,
   createRootBatchProcessor,
@@ -28,7 +29,8 @@ import {
   shouldScheduleAttributeMutation,
   shouldScheduleMutationRoot,
   showProcessingOverlay,
-  waitForRenderableImageSize
+  waitForRenderableImageSize,
+  resetPageImageReplacementRegistriesForTests
 } from '../../src/shared/pageImageReplacement.js';
 import { createImageSessionStore } from '../../src/shared/imageSessionStore.js';
 
@@ -88,10 +90,12 @@ async function withPageImageTestEnv(run) {
     return 1;
   };
   globalThis.clearTimeout = () => {};
+  resetPageImageReplacementRegistriesForTests();
 
   try {
     await run({ MockHTMLImageElement });
   } finally {
+    resetPageImageReplacementRegistriesForTests();
     globalThis.document = originalDocument;
     globalThis.HTMLImageElement = originalHTMLImageElement;
     globalThis.URL = originalURL;
@@ -1269,6 +1273,68 @@ test('preparePageImageProcessing should mark explicitly bound Gemini preview url
   });
 });
 
+test('preparePageImageProcessing should accept cross-realm image-like elements when tagName is IMG', async () => {
+  const image = {
+    tagName: 'IMG',
+    dataset: {},
+    style: {},
+    closest() {
+      return null;
+    }
+  };
+
+  const result = preparePageImageProcessing(image, {
+    HTMLImageElementClass: class MockImageElement {},
+    isProcessableImage: () => true,
+    resolveSourceUrl: () => 'https://lh3.googleusercontent.com/gg-dl/example-token=s1024-rj'
+  });
+
+  assert.equal(result?.sourceUrl, 'https://lh3.googleusercontent.com/gg-dl/example-token=s1024-rj');
+  assert.equal(result?.normalizedUrl, 'https://lh3.googleusercontent.com/gg-dl/example-token=s0-rj');
+  assert.equal(result?.isPreviewSource, true);
+  assert.equal(image.dataset.gwrPageImageState, 'processing');
+});
+
+test('preparePageImageProcessing should skip preview fallback when request-layer preview output already exists', async () => {
+  await withPageImageTestEnv(async ({ MockHTMLImageElement }) => {
+    const imageSessionStore = createImageSessionStore();
+    const image = new MockHTMLImageElement();
+    image.dataset = {
+      gwrResponseId: 'r_phase2_skip',
+      gwrDraftId: 'rc_phase2_skip',
+      gwrConversationId: 'c_phase2_skip'
+    };
+    image.style = {};
+
+    const sessionKey = imageSessionStore.getOrCreateByAssetIds({
+      responseId: 'r_phase2_skip',
+      draftId: 'rc_phase2_skip',
+      conversationId: 'c_phase2_skip'
+    });
+    imageSessionStore.updateProcessedResult(sessionKey, {
+      slot: 'preview',
+      objectUrl: 'blob:https://gemini.google.com/request-preview',
+      blob: new Blob(['preview'], { type: 'image/png' }),
+      blobType: 'image/png',
+      processedFrom: 'request-preview'
+    });
+
+    const result = preparePageImageProcessing(image, {
+      HTMLImageElementClass: MockHTMLImageElement,
+      imageSessionStore,
+      isProcessableImage: () => true,
+      resolveSourceUrl: () => 'blob:https://gemini.google.com/runtime-preview',
+      resolveAssetIds: () => ({
+        responseId: 'r_phase2_skip',
+        draftId: 'rc_phase2_skip',
+        conversationId: 'c_phase2_skip'
+      })
+    });
+
+    assert.equal(result, null);
+  });
+});
+
 test('emitPageImageProcessingStart should emit preview start and strategy events', () => {
   const logs = [];
 
@@ -1347,6 +1413,30 @@ test('applyPageImageProcessingResult should apply ready state and emit success p
     assert.equal(logs[0][1].blobSize, processedBlob.size);
     assert.equal(logs[0][1].selectionDebug?.candidateSource, 'official-nearby-catalog');
     assert.equal(logs[0][1].selectionDebug?.usedLocalShift, true);
+    assert.equal(logs[0][1].sourceUrl, 'https://lh3.googleusercontent.com/gg/example-token=s1024-rj');
+    assert.equal(logs[0][1].normalizedUrl, 'https://lh3.googleusercontent.com/gg/example-token=s0-rj');
+  });
+});
+
+test('handlePageImageProcessingFailure should expose source and normalized url in diagnostics payload', async () => {
+  await withPageImageTestEnv(async ({ MockHTMLImageElement }) => {
+    const logs = [];
+    const image = new MockHTMLImageElement();
+    image.dataset = {};
+    image.style = {};
+
+    handlePageImageProcessingFailure({
+      imageElement: image,
+      sourceUrl: 'blob:https://gemini.google.com/failure-preview',
+      normalizedUrl: 'blob:https://gemini.google.com/failure-preview',
+      error: new Error('boom'),
+      logger: createSilentLogger(),
+      onLog: (type, payload) => logs.push([type, payload])
+    });
+
+    assert.equal(logs[0][0], 'page-image-process-failed');
+    assert.equal(logs[0][1].sourceUrl, 'blob:https://gemini.google.com/failure-preview');
+    assert.equal(logs[0][1].normalizedUrl, 'blob:https://gemini.google.com/failure-preview');
   });
 });
 
@@ -1597,6 +1687,95 @@ test('bindOriginalAssetUrlToImages should mirror original source into the image 
 
     const snapshot = imageSessionStore.getSnapshot('draft:rc_store_source');
     assert.equal(snapshot?.sources?.originalUrl, 'https://lh3.googleusercontent.com/rd-gg/store-source=s0-rp');
+  });
+});
+
+test('bindOriginalAssetUrlToImages should let a matching preview-source image reuse a request-layer preview url binding', async () => {
+  await withPageImageTestEnv(async ({ MockHTMLImageElement }) => {
+    const imageSessionStore = createImageSessionStore();
+    const image = new MockHTMLImageElement();
+    image.dataset = {
+      gwrResponseId: 'r_preview_bind',
+      gwrDraftId: 'rc_preview_bind',
+      gwrConversationId: 'c_preview_bind'
+    };
+    image.style = {};
+
+    bindOriginalAssetUrlToImages({
+      root: {
+        querySelectorAll() {
+          return [image];
+        }
+      },
+      assetIds: {
+        responseId: 'r_preview_bind',
+        draftId: 'rc_preview_bind',
+        conversationId: 'c_preview_bind'
+      },
+      sourceUrl: 'https://lh3.googleusercontent.com/gg-dl/example-preview=s0-rj?alr=yes',
+      imageSessionStore
+    });
+
+    const result = preparePageImageProcessing(image, {
+      HTMLImageElementClass: MockHTMLImageElement,
+      imageSessionStore,
+      isProcessableImage: () => true,
+      resolveSourceUrl: () => 'blob:https://gemini.google.com/runtime-preview'
+    });
+
+    assert.equal(result?.sourceUrl, 'https://lh3.googleusercontent.com/gg-dl/example-preview=s0-rj?alr=yes');
+    assert.equal(result?.isPreviewSource, false);
+    assert.equal(image.dataset.gwrSourceUrl, 'https://lh3.googleusercontent.com/gg-dl/example-preview=s0-rj?alr=yes');
+  });
+});
+
+test('bindProcessedPreviewResultToImages should apply a remembered request-layer preview blob to a matching image node', async () => {
+  await withPageImageTestEnv(async ({ MockHTMLImageElement }) => {
+    const imageSessionStore = createImageSessionStore();
+    const image = new MockHTMLImageElement();
+    image.dataset = {
+      gwrSourceUrl: 'https://lh3.googleusercontent.com/gg-dl/example-preview=s0-rj?alr=yes',
+      gwrResponseId: 'r_preview_apply',
+      gwrDraftId: 'rc_preview_apply',
+      gwrConversationId: 'c_preview_apply'
+    };
+    image.style = {};
+    image.src = image.dataset.gwrSourceUrl;
+    image.currentSrc = image.src;
+    image.naturalWidth = 1024;
+    image.naturalHeight = 559;
+    image.width = 1024;
+    image.height = 559;
+    image.clientWidth = 456;
+    image.clientHeight = 249;
+    image.parentElement = createMockElement('div');
+    image.closest = (selector) => (
+      selector === 'generated-image,.generated-image-container'
+        ? image.parentElement
+        : null
+    );
+
+    const processedBlob = new Blob(['processed-preview'], { type: 'image/png' });
+    const updatedCount = bindProcessedPreviewResultToImages({
+      root: {
+        querySelectorAll() {
+          return [image];
+        }
+      },
+      sourceUrl: 'https://lh3.googleusercontent.com/gg-dl/example-preview=s1024-rj?alr=yes',
+      processedBlob,
+      processedFrom: 'request-preview',
+      imageSessionStore
+    });
+
+    assert.equal(updatedCount, 1);
+    assert.equal(image.dataset.gwrPageImageState, 'ready');
+    assert.equal(typeof image.dataset.gwrWatermarkObjectUrl, 'string');
+    assert.ok(image.dataset.gwrWatermarkObjectUrl.startsWith('blob:mock:'));
+
+    const snapshot = imageSessionStore.getSnapshot('draft:rc_preview_apply');
+    assert.equal(snapshot?.derived?.processedSlots?.preview?.processedFrom, 'request-preview');
+    assert.equal(snapshot?.derived?.processedSlots?.preview?.blobType, 'image/png');
   });
 });
 

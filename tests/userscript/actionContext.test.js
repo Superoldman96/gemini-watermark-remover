@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { createImageSessionStore } from '../../src/shared/imageSessionStore.js';
 import {
   createGeminiActionContextResolver,
+  findGeminiImageElementForSourceUrl,
   findNearbyGeminiImageElement
 } from '../../src/userscript/actionContext.js';
 
@@ -11,9 +12,64 @@ function createImageElement(dataset = {}) {
   return {
     tagName: 'IMG',
     dataset: { ...dataset },
+    currentSrc: '',
+    src: '',
     closest: () => null
   };
 }
+
+test('findGeminiImageElementForSourceUrl should match images by bound or stable Gemini source url', () => {
+  const previewImage = createImageElement({
+    gwrSourceUrl: 'https://lh3.googleusercontent.com/gg/example-token=s0-rj',
+    gwrStableSource: 'https://lh3.googleusercontent.com/gg/example-token=s0-rj'
+  });
+  previewImage.src = 'blob:https://gemini.google.com/runtime-preview';
+  previewImage.currentSrc = previewImage.src;
+
+  const fallbackImage = createImageElement();
+  fallbackImage.src = 'https://lh3.googleusercontent.com/gg/other-token=s1024-rj';
+  fallbackImage.currentSrc = fallbackImage.src;
+
+  const root = {
+    querySelectorAll(selector) {
+      return selector === 'generated-image img,.generated-image-container img'
+        ? [previewImage, fallbackImage]
+        : [];
+    }
+  };
+
+  const resolved = findGeminiImageElementForSourceUrl(
+    root,
+    'https://lh3.googleusercontent.com/gg/example-token=s1024-rj'
+  );
+
+  assert.equal(resolved, previewImage);
+});
+
+test('findGeminiImageElementForSourceUrl should fall back to a single unbound blob image when it is the only Gemini candidate', () => {
+  const previewImage = createImageElement({
+    gwrResponseId: 'r_single_preview',
+    gwrDraftId: 'rc_single_preview',
+    gwrConversationId: 'c_single_preview'
+  });
+  previewImage.src = 'blob:https://gemini.google.com/runtime-preview';
+  previewImage.currentSrc = previewImage.src;
+
+  const root = {
+    querySelectorAll(selector) {
+      return selector === 'generated-image img,.generated-image-container img'
+        ? [previewImage]
+        : [];
+    }
+  };
+
+  const resolved = findGeminiImageElementForSourceUrl(
+    root,
+    'https://lh3.googleusercontent.com/gg-dl/example-preview=s1024-rj?alr=yes'
+  );
+
+  assert.equal(resolved, previewImage);
+});
 
 test('findNearbyGeminiImageElement should prefer the processed global asset match when fullscreen root image is still unprocessed', () => {
   const previewImage = createImageElement({

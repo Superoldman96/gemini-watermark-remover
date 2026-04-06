@@ -3,13 +3,15 @@ import {
   resolveCompatibleActionContextFromPayload
 } from '../shared/actionContextCompat.js';
 import {
+  bindProcessedPreviewResultToImages,
   bindOriginalAssetUrlToImages,
   installPageImageReplacement
 } from '../shared/pageImageReplacement.js';
 import { getDefaultImageSessionStore } from '../shared/imageSessionStore.js';
 import { installGeminiClipboardImageHook } from './clipboardHook.js';
-import { createGeminiActionContextResolver } from './actionContext.js';
+import { createGeminiActionContextResolver, findGeminiImageElementForSourceUrl } from './actionContext.js';
 import {
+  createGeminiDownloadFetchHook,
   createGeminiDownloadIntentGate,
   createGeminiDownloadRpcFetchHook,
   extractGeminiAssetBindingsFromResponseText,
@@ -34,6 +36,7 @@ import {
   showUserNotice
 } from './userNotice.js';
 import {
+  isGeminiDisplayPreviewAssetUrl,
   isGeminiOriginalAssetUrl,
   normalizeGoogleusercontentImageUrl
 } from './urlUtils.js';
@@ -55,9 +58,9 @@ function shouldSkipFrame(targetWindow) {
 
 function isPreviewReplacementEnabled(targetWindow) {
   try {
-    return targetWindow?.localStorage?.getItem('__gwr_enable_preview_replacement__') === '1';
+    return targetWindow?.localStorage?.getItem('__gwr_enable_preview_replacement__') !== '0';
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -93,6 +96,12 @@ function isPreviewReplacementEnabled(targetWindow) {
       imageSessionStore
     });
     let pageProcessClient = null;
+    const processPreviewBlobAtBestPath = async (blob, options = {}) => {
+      const result = pageProcessClient?.processWatermarkBlob
+        ? await pageProcessClient.processWatermarkBlob(blob, options)
+        : await processingRuntime.processWatermarkBlob(blob, options);
+      return result.processedBlob;
+    };
     const removeWatermarkFromBestAvailablePath = (blob, options = {}) => (
       pageProcessClient?.removeWatermarkFromBlob
         ? pageProcessClient.removeWatermarkFromBlob(blob, options)
@@ -120,7 +129,10 @@ function isPreviewReplacementEnabled(targetWindow) {
     const handleActionCriticalFailure = () => {
       showUserNotice(targetWindow, GWR_ORIGINAL_ASSET_REFRESH_MESSAGE);
     };
-    const handleProcessedBlobResolved = (payload = {}) => {
+    const storeProcessedBlobResolved = (payload = {}, {
+      slot = 'full',
+      processedFrom = 'processed'
+    } = {}) => {
       const resolvedActionContext = resolveCompatibleActionContextFromPayload(payload);
       const processedBlob = payload?.processedBlob instanceof Blob
         ? payload.processedBlob
@@ -135,21 +147,61 @@ function isPreviewReplacementEnabled(targetWindow) {
         return;
       }
 
-      const previousFullObjectUrl = imageSessionStore.getSnapshot(sessionKey)?.derived?.processedSlots?.full?.objectUrl || '';
+      const previousObjectUrl = imageSessionStore.getSnapshot(sessionKey)?.derived?.processedSlots?.[slot]?.objectUrl || '';
       const nextObjectUrl = urlApi.createObjectURL(processedBlob);
       if (
-        previousFullObjectUrl
-        && previousFullObjectUrl !== nextObjectUrl
+        previousObjectUrl
+        && previousObjectUrl !== nextObjectUrl
         && typeof urlApi?.revokeObjectURL === 'function'
       ) {
-        urlApi.revokeObjectURL(previousFullObjectUrl);
+        urlApi.revokeObjectURL(previousObjectUrl);
       }
 
       imageSessionStore.updateProcessedResult(sessionKey, {
-        slot: 'full',
+        slot,
         objectUrl: nextObjectUrl,
         blob: processedBlob,
         blobType: processedBlob.type || 'image/png',
+        processedFrom
+      });
+    };
+    const handlePreviewBlobResolved = (payload = {}) => {
+      const resolvedActionContext = resolveCompatibleActionContextFromPayload(payload);
+      const sessionKey = (
+        typeof resolvedActionContext?.sessionKey === 'string'
+          ? resolvedActionContext.sessionKey.trim()
+          : ''
+      ) || imageSessionStore.getOrCreateByAssetIds(resolvedActionContext?.assetIds);
+      if (sessionKey && typeof payload?.normalizedUrl === 'string' && payload.normalizedUrl.trim()) {
+        imageSessionStore.updateSourceSnapshot?.(sessionKey, {
+          sourceUrl: payload.normalizedUrl.trim(),
+          isPreviewSource: true
+        });
+      }
+      storeProcessedBlobResolved(payload, {
+        slot: 'preview',
+        processedFrom: 'request-preview'
+      });
+      bindProcessedPreviewResultToImages({
+        root: targetWindow.document || document,
+        sourceUrl: payload?.normalizedUrl || '',
+        processedBlob: payload?.processedBlob || null,
+        processedMeta: null,
+        processedFrom: 'request-preview',
+        imageSessionStore
+      });
+    };
+    const resolvePreviewRequestActionContext = ({ url = '', normalizedUrl = '' } = {}) => {
+      const targetUrl = normalizedUrl || url;
+      const imageElement = findGeminiImageElementForSourceUrl(targetWindow.document || document, targetUrl);
+      return actionContextResolver.resolveActionContext(imageElement, {
+        action: 'display'
+      });
+    };
+    const handleProcessedBlobResolved = (payload = {}) => {
+      const resolvedActionContext = resolveCompatibleActionContextFromPayload(payload);
+      storeProcessedBlobResolved(payload, {
+        slot: 'full',
         processedFrom: resolvedActionContext?.action === 'clipboard'
           ? 'original-clipboard'
           : 'original-download'
@@ -181,13 +233,23 @@ function isPreviewReplacementEnabled(targetWindow) {
       onOriginalAssetDiscovered: handleRpcAssetDiscovered,
       logger: console
     });
+    const previewFetch = createGeminiDownloadFetchHook({
+      originalFetch: downloadRpcFetch,
+      isTargetUrl: isGeminiDisplayPreviewAssetUrl,
+      normalizeUrl: normalizeGoogleusercontentImageUrl,
+      getActionContext: resolvePreviewRequestActionContext,
+      processBlob: processPreviewBlobAtBestPath,
+      shouldProcessRequest: ({ url = '' } = {}) => isGeminiDisplayPreviewAssetUrl(url),
+      onProcessedBlobResolved: handlePreviewBlobResolved,
+      logger: console
+    });
     installGeminiDownloadRpcXmlHttpRequestHook(targetWindow, {
       getActionContext: () => downloadIntentGate.getRecentActionContext(),
       onOriginalAssetDiscovered: handleRpcAssetDiscovered,
       logger: console
     });
     installGeminiDownloadHook(targetWindow, {
-      originalFetch: downloadRpcFetch,
+      originalFetch: previewFetch,
       intentGate: downloadIntentGate,
       isTargetUrl: isGeminiOriginalAssetUrl,
       normalizeUrl: normalizeGoogleusercontentImageUrl,

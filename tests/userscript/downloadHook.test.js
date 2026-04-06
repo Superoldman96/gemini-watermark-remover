@@ -388,6 +388,32 @@ test('createGeminiDownloadFetchHook should bypass Gemini preview fetches when on
   );
 });
 
+test('createGeminiDownloadFetchHook should process Gemini preview fetches when preview interception is enabled', async () => {
+  const seenUrls = [];
+  const hook = createGeminiDownloadFetchHook({
+    originalFetch: async (input) => {
+      seenUrls.push(typeof input === 'string' ? input : input.url);
+      return new Response(new Blob(['preview-original'], { type: 'image/webp' }), {
+        status: 200,
+        headers: { 'content-type': 'image/webp' }
+      });
+    },
+    isTargetUrl: (url) => url.includes('/gg/'),
+    normalizeUrl: () => 'https://lh3.googleusercontent.com/gg/token=s0-rj',
+    processBlob: async (blob, context) => {
+      assert.equal(await blob.text(), 'preview-original');
+      assert.equal(context.normalizedUrl, 'https://lh3.googleusercontent.com/gg/token=s0-rj');
+      return new Blob(['preview-processed'], { type: 'image/png' });
+    }
+  });
+
+  const response = await hook('https://lh3.googleusercontent.com/gg/token=s1024-rj');
+
+  assert.deepEqual(seenUrls, ['https://lh3.googleusercontent.com/gg/token=s0-rj']);
+  assert.equal(await response.text(), 'preview-processed');
+  assert.equal(response.headers.get('content-type'), 'image/png');
+});
+
 test('isGeminiDownloadActionTarget should recognize copy and download buttons but ignore share actions', () => {
   assert.equal(isGeminiDownloadActionTarget({
     closest() {

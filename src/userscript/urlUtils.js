@@ -84,6 +84,36 @@ export function isGeminiPreviewAssetUrl(url) {
   return classifyGeminiAssetUrl(url)?.isPreview === true;
 }
 
+export function isGeminiDisplayPreviewAssetUrl(url) {
+  if (typeof url !== 'string' || url.length === 0) return false;
+
+  try {
+    const parsed = new URL(url);
+    if (!isGoogleusercontentHost(parsed.hostname)) {
+      return false;
+    }
+
+    const classification = classifyGeminiAssetPath(parsed.pathname);
+    if (!classification || classification.family !== 'gg') {
+      return false;
+    }
+
+    if (classification.isPreview === true) {
+      return hasNativeDownloadTokenAtTail(parsed.pathname) === false;
+    }
+
+    if (hasNativeDownloadTokenAtTail(parsed.pathname)) {
+      return false;
+    }
+
+    return classification.isDownload === true
+      && /-rj$/i.test(parsed.pathname)
+      && hasNativeDownloadTokenAtTail(parsed.pathname) === false;
+  } catch {
+    return false;
+  }
+}
+
 export function isGeminiOriginalAssetUrl(url) {
   if (typeof url !== 'string' || url.length === 0) return false;
 

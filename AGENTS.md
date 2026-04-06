@@ -153,6 +153,23 @@ These stronger-sample numbers are intentional tradeoffs after edge cleanup:
 - They are much better than the older `afterGradient ~= 0.53` level.
 - They keep residuals inside the current safety envelope instead of risking content damage.
 
+### Current Preview Display Path
+
+Current production expectation for real Gemini preview display is:
+
+- keep request-layer preview interception enabled as an early processing source and observability point
+- do not assume Gemini's final displayed `blob:` image is fully controlled by the page `fetch` hook chain
+- keep `src/shared/pageImageReplacement.js` as the production display path for preview replacement
+- treat request-layer preview handling as supportive, but rely on page-level replacement to guarantee the user-visible preview is actually de-watermarked
+
+Current real-page success signal for preview display:
+
+- the displayed image reaches:
+  - `data-gwr-page-image-state=ready`
+  - `data-gwr-watermark-object-url=blob:...`
+- detector on that processed overlay blob reports:
+  - `skipReason=no-watermark-detected`
+
 ### Confirmed Performance Pitfalls
 
 When the user reports "this version became much slower", check these first before touching the core algorithm:

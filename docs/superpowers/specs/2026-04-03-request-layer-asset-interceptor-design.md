@@ -118,6 +118,12 @@ Extend the same request-layer interceptor to Gemini `gg` preview fetches:
 
 This is the path that can eventually unify display, copy, and download under one response-transform pipeline.
 
+Current implementation note after real-page validation:
+
+- request-layer preview interception is useful and should stay enabled
+- however, the real Gemini page's final displayed preview `blob:` is not yet reliably controlled by the request-layer path alone
+- current production behavior should therefore keep page-level preview replacement as the user-visible display path, with request-layer preview handling acting as an assisting source rather than the sole display mechanism
+
 ## Explicit Non-Goals For Phase 1
 
 - no new idle-time DOM replacement system
@@ -162,7 +168,7 @@ Minimum verification for Phase 1:
 
 - unit tests for request interception and fail-closed behavior
 - unit tests proving copy/download no longer reuse preview resources as success paths
-- startup/entry tests proving preview DOM replacement is not installed by default
+- startup/entry tests proving preview request interception is installed without weakening the default page-level preview replacement path
 - real-page validation on fixed profile:
   - request logs show the native `c8o8Fe -> gg-dl -> rd-gg-dl` chain and late `image/png` interception on download
   - clipboard output is de-watermarked
@@ -171,12 +177,11 @@ Minimum verification for Phase 1:
 
 ## Decision
 
-Proceed on a new branch with Phase 1 first:
+Current validated production decision after real-page testing:
 
-- request-layer original/full-quality interception for copy/download
-- preview DOM replacement disabled by default
-- explicit user-visible failure when the required original path cannot be resolved
+- request-layer original/full-quality interception remains the primary path for copy/download
+- page-level preview replacement remains enabled and is still the production path for user-visible preview display
+- request-layer preview interception stays enabled as an assisting source and observability point
+- explicit user-visible failure remains required when the needed original path cannot be resolved
 
-Phase 2 stays planned but separate:
-
-- request-layer preview interception for `gg` display assets
+Phase 2 is therefore no longer "replace page preview handling entirely"; it is "strengthen preview request interception without assuming sole ownership of final displayed preview blobs"

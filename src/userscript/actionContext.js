@@ -1,6 +1,7 @@
-import { extractGeminiImageAssetIds, getGeminiImageQuerySelector } from '../shared/domAdapter.js';
+import { extractGeminiImageAssetIds, getGeminiImageQuerySelector, resolveCandidateImageUrl } from '../shared/domAdapter.js';
 import { resolveImageSessionContext } from '../shared/imageSessionContext.js';
 import { getDefaultImageSessionStore } from '../shared/imageSessionStore.js';
+import { normalizeGoogleusercontentImageUrl } from './urlUtils.js';
 
 export function assetIdsMatch(candidate = null, target = null) {
   if (!candidate || !target) {
@@ -37,6 +38,51 @@ export function findGeminiImageElementForAssetIds(root, assetIds) {
     }
 
     fallbackMatch ||= imageElement;
+  }
+
+  return fallbackMatch;
+}
+
+export function findGeminiImageElementForSourceUrl(root, sourceUrl = '') {
+  if (!root || typeof root.querySelectorAll !== 'function') {
+    return null;
+  }
+
+  const normalizedTargetUrl = typeof sourceUrl === 'string'
+    ? normalizeGoogleusercontentImageUrl(sourceUrl.trim())
+    : '';
+  if (!normalizedTargetUrl) {
+    return null;
+  }
+
+  let fallbackMatch = null;
+  const unboundBlobCandidates = [];
+  for (const imageElement of root.querySelectorAll(getGeminiImageQuerySelector())) {
+    const candidateUrl = normalizeGoogleusercontentImageUrl(resolveCandidateImageUrl(imageElement) || '');
+    if (!candidateUrl || candidateUrl !== normalizedTargetUrl) {
+      const currentSrc = typeof imageElement?.currentSrc === 'string'
+        ? imageElement.currentSrc.trim()
+        : '';
+      const src = typeof imageElement?.src === 'string'
+        ? imageElement.src.trim()
+        : '';
+      const hasExplicitSource = typeof imageElement?.dataset?.gwrSourceUrl === 'string'
+        && imageElement.dataset.gwrSourceUrl.trim();
+      if (!hasExplicitSource && (currentSrc.startsWith('blob:') || src.startsWith('blob:'))) {
+        unboundBlobCandidates.push(imageElement);
+      }
+      continue;
+    }
+
+    if (imageElement?.dataset?.gwrWatermarkObjectUrl) {
+      return imageElement;
+    }
+
+    fallbackMatch ||= imageElement;
+  }
+
+  if (!fallbackMatch && unboundBlobCandidates.length === 1) {
+    return unboundBlobCandidates[0];
   }
 
   return fallbackMatch;
