@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
 
+import { calculateAlphaMap } from '../../src/core/alphaMap.js';
 import { processWatermarkImageData } from '../../src/core/watermarkProcessor.js';
 import { interpolateAlphaMap, warpAlphaMap, computeRegionSpatialCorrelation } from '../../src/core/adaptiveDetector.js';
+import { decodeImageDataInNode } from '../../scripts/sample-benchmark.js';
 import {
     applySyntheticWatermark,
     createPatternImageData,
@@ -398,6 +401,30 @@ test('processWatermarkImageData should avoid expanded alpha-gain search when the
     assert.ok(
         !String(result.meta.source).includes('+gain'),
         `expected no expanded gain search, source=${result.meta.source}`
+    );
+});
+
+test('processWatermarkImageData should avoid conservative fallback on debug1-source download sample', async () => {
+    const alpha48 = calculateAlphaMap(await decodeImageDataInNode(path.resolve('src/assets/bg_48.png')));
+    const alpha96 = calculateAlphaMap(await decodeImageDataInNode(path.resolve('src/assets/bg_96.png')));
+    const imageData = await decodeImageDataInNode(path.resolve('src/assets/samples/debug1-source.png'));
+
+    const result = processWatermarkImageData(imageData, {
+        alpha48,
+        alpha96,
+        adaptiveMode: 'never',
+        maxPasses: 1,
+        getAlphaMap: (size) => interpolateAlphaMap(alpha96, 96, size)
+    });
+
+    assert.ok(result.meta.applied, `skipReason=${result.meta.skipReason}`);
+    assert.ok(
+        result.meta.detection.processedGradientScore < 0.12,
+        `expected debug1-source residual gradient < 0.12, got ${result.meta.detection.processedGradientScore}, source=${result.meta.source}`
+    );
+    assert.ok(
+        result.meta.position.width >= 48,
+        `expected debug1-source to avoid undersized fallback candidate, got ${result.meta.position.width}`
     );
 });
 

@@ -73,6 +73,7 @@ async function listSampleAssetFiles() {
     return (await readdir(SAMPLE_DIR))
         .filter((name) => IMAGE_EXTENSIONS.has(path.extname(name).toLowerCase()))
         .filter((name) => !name.includes('-fix.'))
+        .filter((name) => !name.includes('-after.'))
         .sort((a, b) => a.localeCompare(b));
 }
 

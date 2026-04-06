@@ -7,6 +7,8 @@ const NEAR_BLACK_THRESHOLD = 5;
 const TEXTURE_REFERENCE_MARGIN = 1;
 const TEXTURE_STD_FLOOR_RATIO = 0.8;
 const TEXTURE_DARKNESS_VISIBILITY_HARD_REJECT_THRESHOLD = 1.5;
+const TEXTURE_DARKNESS_HARD_REJECT_PENALTY_THRESHOLD = 0.5;
+const TEXTURE_FLATNESS_HARD_REJECT_PENALTY_THRESHOLD = 0.2;
 const DEFAULT_HALO_MIN_ALPHA = 0.12;
 const DEFAULT_HALO_MAX_ALPHA = 0.35;
 const DEFAULT_HALO_OUTSIDE_ALPHA_MAX = 0.01;
@@ -205,6 +207,11 @@ export function assessReferenceTextureAlignmentFromStats({
     const tooDark = darknessPenalty > 0;
     const tooFlat = flatnessPenalty > 0;
     const visibleDarkHole = tooDark && darknessVisibility >= TEXTURE_DARKNESS_VISIBILITY_HARD_REJECT_THRESHOLD;
+    const strongDarkFlatCollapse =
+        tooDark &&
+        tooFlat &&
+        darknessPenalty >= TEXTURE_DARKNESS_HARD_REJECT_PENALTY_THRESHOLD &&
+        flatnessPenalty >= TEXTURE_FLATNESS_HARD_REJECT_PENALTY_THRESHOLD;
 
     return {
         referenceTextureStats,
@@ -216,7 +223,7 @@ export function assessReferenceTextureAlignmentFromStats({
         tooDark,
         tooFlat,
         visibleDarkHole,
-        hardReject: (tooDark && tooFlat) || visibleDarkHole
+        hardReject: strongDarkFlatCollapse || visibleDarkHole
     };
 }
 
