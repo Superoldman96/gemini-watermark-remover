@@ -92,14 +92,8 @@ test('tampermonkey freshness script should expose an editor auto-open helper', (
   assert.equal(typeof ensureTampermonkeyEditorPage, 'function');
 });
 
-test('tampermonkey freshness script should only treat +editor pages as editor pages', async () => {
+test('tampermonkey freshness script should only treat +editor pages as editor pages', () => {
   const source = readFileSync(new URL('../../scripts/tampermonkey-freshness.js', import.meta.url), 'utf8');
 
   assert.equal(source.includes("page.url().includes('+editor')"), true);
-});
-
-test('package.json should expose a tampermonkey freshness command', () => {
-  const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
-
-  assert.equal(pkg.scripts['probe:tm:freshness'], 'node scripts/tampermonkey-freshness.js');
 });

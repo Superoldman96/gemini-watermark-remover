@@ -239,6 +239,8 @@ pnpm test
 
 回归测试会使用 `src/assets/samples/` 下的源样本。
 源样本文件应保留在 git 中。
+这些样本的命名与保留规则见 `src/assets/samples/README.md`。
+复杂图预览/下载验证说明见 `docs/complex-figure-verification-checklist.md`。
 本地生成到 `src/assets/samples/fix/` 下的文件只是人工回归快照，不进入 git，也不作为 CI 必须存在的基线。
 
 ## 发版说明

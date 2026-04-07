@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 
 import {
   DEFAULT_REAL_PAGE_PIXEL_COMPARE_CDP_URL,
@@ -99,10 +98,4 @@ test('resolveComparableBeforeUrl should prefer stableSource then sourceUrl and a
     }),
     'blob:https://gemini.google.com/original'
   );
-});
-
-test('package.json should expose a real-page pixel compare command', () => {
-  const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
-
-  assert.equal(pkg.scripts['probe:real-page:compare'], 'node scripts/real-page-pixel-compare.js');
 });

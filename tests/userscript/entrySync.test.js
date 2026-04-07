@@ -9,7 +9,9 @@ test('development preview and userscript runtime should both use shared watermar
 
     assert.equal(hasImportedBinding(appSource, './core/watermarkEngine.js', 'WatermarkEngine'), true);
     assert.equal(hasImportedBinding(userscriptEntrySource, './processingRuntime.js', 'createUserscriptProcessingRuntime'), true);
-    assert.equal(hasImportedBinding(userscriptRuntimeSource, '../core/watermarkEngine.js', 'WatermarkEngine'), true);
+    assert.equal(hasImportedBinding(userscriptRuntimeSource, '../shared/imageProcessing.js', 'createCachedCanvasProcessor'), true);
+    assert.equal(hasImportedBinding(userscriptRuntimeSource, '../shared/imageProcessing.js', 'loadImageElementFromBlob'), true);
+    assert.equal(hasImportedBinding(userscriptRuntimeSource, '../core/watermarkEngine.js', 'WatermarkEngine'), false);
     assert.equal(hasImportedBinding(appSource, './core/watermarkProcessor.js', 'processWatermarkImageData'), false);
     assert.equal(hasImportedBinding(userscriptRuntimeSource, '../core/watermarkProcessor.js', 'processWatermarkImageData'), false);
 });

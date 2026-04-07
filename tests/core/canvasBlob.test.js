@@ -46,6 +46,30 @@ test('canvasToBlob should reject when toBlob returns null', async () => {
     await assert.rejects(canvasToBlob(canvas), /Failed to encode image blob/);
 });
 
+test('canvasToBlob should allow overriding the null-blob error message', async () => {
+    const canvas = {
+        toBlob: (callback) => {
+            queueMicrotask(() => callback(null));
+        }
+    };
+
+    await assert.rejects(
+        canvasToBlob(canvas, 'image/png', {
+            nullBlobMessage: 'Failed to encode PNG blob'
+        }),
+        /Failed to encode PNG blob/
+    );
+});
+
 test('canvasToBlob should reject when no canvas blob export API is available', async () => {
     await assert.rejects(canvasToBlob({}), /Canvas blob export API is unavailable/);
+});
+
+test('canvasToBlob should allow overriding the missing-api error message', async () => {
+    await assert.rejects(
+        canvasToBlob(null, 'image/png', {
+            unavailableMessage: 'Canvas toBlob unavailable'
+        }),
+        /Canvas toBlob unavailable/
+    );
 });

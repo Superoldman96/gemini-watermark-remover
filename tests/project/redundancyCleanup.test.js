@@ -29,6 +29,74 @@ const obsoleteSuperpowersDocs = [
   'plans/2026-03-20-extension-worker-mvp.md'
 ];
 
+function readRepoText(relativePath) {
+  return readFileSync(new URL(`../../${relativePath}`, import.meta.url), 'utf8');
+}
+
+test('package should not expose removed Chrome extension workflows', () => {
+  const packageJson = JSON.parse(readRepoText('package.json'));
+
+  for (const scriptName of [
+    'test:extension-smoke',
+    'debug:auto',
+    'debug:auto:clean',
+    'debug:manual',
+    'debug:manual:clean',
+    'debug:chrome',
+    'debug:chrome:clean'
+  ]) {
+    assert.equal(
+      packageJson.scripts?.[scriptName],
+      undefined,
+      `expected package.json to stop exposing ${scriptName}`
+    );
+  }
+});
+
+test('build and ci config should not reference removed Chrome extension bundle outputs', () => {
+  const buildScript = readRepoText('build.js');
+  const workflow = readRepoText('.github/workflows/ci.yml');
+
+  for (const pattern of [
+    /src\/extension\/pageHook\.js/,
+    /src\/extension\/contentScript\.js/,
+    /src\/extension\/popup\.js/,
+    /dist\/extension\//,
+    /manifest\.json/,
+    /popup\.html/
+  ]) {
+    assert.doesNotMatch(buildScript, pattern);
+  }
+
+  assert.doesNotMatch(workflow, /name:\s+Extension smoke/i);
+  assert.doesNotMatch(workflow, /run:\s+pnpm test:extension-smoke/i);
+});
+
+test('README files should not document removed Chrome extension workflows', () => {
+  const readmeZh = readRepoText('README_zh.md');
+  const readmeEn = readRepoText('README.md');
+
+  for (const pattern of [
+    /Chrome 插件/i,
+    /dist\/extension/,
+    /加载已解压缩的扩展程序|Load unpacked/i,
+    /pnpm debug:auto/,
+    /pnpm debug:manual/
+  ]) {
+    assert.doesNotMatch(readmeZh, pattern);
+  }
+
+  for (const pattern of [
+    /Chrome Extension/i,
+    /dist\/extension/,
+    /Load unpacked/i,
+    /pnpm debug:auto/,
+    /pnpm debug:manual/
+  ]) {
+    assert.doesNotMatch(readmeEn, pattern);
+  }
+});
+
 test('removed plugin source directory should not remain as an empty placeholder', () => {
   assert.equal(
     existsSync(new URL('../../src/extension', import.meta.url)),
@@ -145,5 +213,16 @@ test('local agent rules should not be committed into the project tree', () => {
     existsSync(new URL('../../.agents/rules/locale.md', import.meta.url)),
     false,
     'expected .agents/rules/locale.md to stay out of the repository'
+  );
+});
+
+test('primary sample directory should not keep committed derived after snapshots', () => {
+  const sampleFiles = listRelativeFiles(new URL('../../src/assets/samples/', import.meta.url));
+  const derivedAfterFiles = sampleFiles.filter((relativePath) => /-after\.(png|webp|jpg|jpeg)$/i.test(relativePath));
+
+  assert.deepEqual(
+    derivedAfterFiles,
+    [],
+    `expected derived after snapshots to stay out of src/assets/samples, found: ${derivedAfterFiles.join(', ')}`
   );
 });

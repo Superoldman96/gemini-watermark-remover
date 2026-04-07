@@ -62,3 +62,17 @@ test('exportFixedSamples should process local sample files without a browser run
     assert.ok(results[0].meta?.applied, `skipReason=${results[0].meta?.skipReason}`);
     await access(path.join(tempDir, 'fix', '1-1.webp'));
 });
+
+test('exportFixedSamples should skip derived after snapshots in the input directory', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'wm-export-after-'));
+    const primaryInputPath = path.join(tempDir, '1-1.webp');
+    const derivedInputPath = path.join(tempDir, '1-1-after.webp');
+
+    await copyFile(path.resolve('src/assets/samples/1-1.webp'), primaryInputPath);
+    await copyFile(path.resolve('src/assets/samples/1-1.webp'), derivedInputPath);
+
+    const results = await exportFixedSamples(tempDir);
+
+    assert.equal(results.length, 1);
+    assert.equal(path.basename(results[0].inputPath), '1-1.webp');
+});

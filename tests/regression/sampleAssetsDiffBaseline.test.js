@@ -154,6 +154,7 @@ test('sample assets should match local fix-directory baselines when they are pre
     const fileNames = (await readdir(SAMPLE_DIR))
         .filter((name) => IMAGE_EXTENSIONS.has(path.extname(name).toLowerCase()))
         .filter((name) => !name.includes('-fix.'))
+        .filter((name) => !name.includes('-after.'))
         .sort((a, b) => a.localeCompare(b));
 
     const filesWithLocalBaselines = [];

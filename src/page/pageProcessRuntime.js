@@ -1,15 +1,10 @@
-import { WatermarkEngine } from '../core/watermarkEngine.js';
-import { canvasToBlob } from '../core/canvasBlob.js';
+import {
+  createCachedImageProcessor,
+  loadImageElementFromBlob
+} from '../shared/imageProcessing.js';
 import { installPageProcessBridge } from '../userscript/pageProcessBridge.js';
 
 const PAGE_PROCESS_RUNTIME_FLAG = '__gwrPageProcessRuntimeInstalled__';
-
-const loadImage = (src) => new Promise((resolve, reject) => {
-  const img = new Image();
-  img.onload = () => resolve(img);
-  img.onerror = reject;
-  img.src = src;
-});
 
 export function installPageProcessRuntime({
   targetWindow = globalThis.window || null,
@@ -22,31 +17,18 @@ export function installPageProcessRuntime({
     return targetWindow[PAGE_PROCESS_RUNTIME_FLAG];
   }
 
-  let enginePromise = null;
-  async function getEngine() {
-    if (!enginePromise) {
-      enginePromise = WatermarkEngine.create().catch((error) => {
-        enginePromise = null;
-        throw error;
-      });
-    }
-    return enginePromise;
-  }
+  const processRenderable = createCachedImageProcessor({
+    processorPath: null
+  });
 
   async function processWatermarkBlob(blob, options = {}) {
-    const engine = await getEngine();
-    const blobUrl = URL.createObjectURL(blob);
-    try {
-      const img = await loadImage(blobUrl);
-      const canvas = await engine.removeWatermarkFromImage(img, options);
-      const processedBlob = await canvasToBlob(canvas);
-      return {
-        processedBlob,
-        processedMeta: canvas.__watermarkMeta || null
-      };
-    } finally {
-      URL.revokeObjectURL(blobUrl);
-    }
+    const img = await loadImageElementFromBlob(blob);
+    const result = await processRenderable(img, options);
+
+    return {
+      processedBlob: result?.processedBlob || null,
+      processedMeta: result?.processedMeta || null
+    };
   }
 
   async function removeWatermarkFromBlob(blob, options = {}) {

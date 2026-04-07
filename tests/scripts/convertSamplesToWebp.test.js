@@ -12,11 +12,6 @@ import {
 const TINY_PNG_BASE64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a0b8AAAAASUVORK5CYII=';
 
-test('package.json should expose the sample webp conversion script', async () => {
-    const pkg = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8'));
-    assert.equal(pkg.scripts['convert:samples:webp'], 'node scripts/convert-samples-to-webp.js');
-});
-
 test('buildWebpOutputPath should write into a sibling webp directory with a webp extension', () => {
     const output = buildWebpOutputPath('D:\\Project\\gemini-watermark-remover\\src\\assets\\samples\\16-9.png');
     assert.equal(output, 'D:\\Project\\gemini-watermark-remover\\src\\assets\\samples\\webp\\16-9.webp');

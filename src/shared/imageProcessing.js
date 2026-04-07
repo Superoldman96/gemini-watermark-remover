@@ -10,6 +10,15 @@ function loadImageFromObjectUrl(objectUrl) {
   });
 }
 
+export async function loadImageElementFromBlob(blob) {
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    return await loadImageFromObjectUrl(objectUrl);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
 async function loadRenderableFromBlobFallback(blob, originalError) {
   if (typeof createImageBitmap !== 'function') {
     throw originalError;
@@ -23,23 +32,22 @@ async function loadRenderableFromBlobFallback(blob, originalError) {
 }
 
 export async function loadImageFromBlob(blob) {
-  const objectUrl = URL.createObjectURL(blob);
   try {
-    try {
-      return await loadImageFromObjectUrl(objectUrl);
-    } catch (error) {
-      return await loadRenderableFromBlobFallback(blob, error);
-    }
-  } finally {
-    URL.revokeObjectURL(objectUrl);
+    return await loadImageElementFromBlob(blob);
+  } catch (error) {
+    return await loadRenderableFromBlobFallback(blob, error);
   }
 }
 
 function withProcessorPath(meta, processorPath) {
-  return {
-    ...(meta && typeof meta === 'object' ? meta : {}),
-    processorPath
-  };
+  const normalizedMeta = meta && typeof meta === 'object' ? { ...meta } : null;
+  if (processorPath != null) {
+    return {
+      ...(normalizedMeta || {}),
+      processorPath
+    };
+  }
+  return normalizedMeta;
 }
 
 function normalizeProcessorResult(result, processorPath = 'main-thread') {
@@ -56,14 +64,12 @@ function normalizeProcessingOptions(options = {}) {
   };
 }
 
-export function createCachedImageProcessor({
-  createEngine = () => WatermarkEngine.create(),
-  encodeCanvas = canvasToBlob,
-  processorPath = 'main-thread'
+export function createCachedEngineGetter({
+  createEngine = () => WatermarkEngine.create()
 } = {}) {
   let enginePromise = null;
 
-  async function getEngine() {
+  return async function getEngine() {
     if (!enginePromise) {
       enginePromise = Promise.resolve(createEngine()).catch((error) => {
         enginePromise = null;
@@ -71,13 +77,33 @@ export function createCachedImageProcessor({
       });
     }
     return enginePromise;
-  }
+  };
+}
+
+export function createCachedCanvasProcessor({
+  createEngine = () => WatermarkEngine.create(),
+  getEngine = null
+} = {}) {
+  const resolveEngine = typeof getEngine === 'function'
+    ? getEngine
+    : createCachedEngineGetter({ createEngine });
+
+  return async function processRenderableToCanvas(image, options = {}) {
+    const engine = await resolveEngine();
+    const normalizedOptions = normalizeProcessingOptions(options);
+    return engine.removeWatermarkFromImage(image, normalizedOptions);
+  };
+}
+
+export function createCachedImageProcessor({
+  createEngine = () => WatermarkEngine.create(),
+  encodeCanvas = canvasToBlob,
+  processorPath = 'main-thread'
+} = {}) {
+  const processRenderableToCanvas = createCachedCanvasProcessor({ createEngine });
 
   return async function processRenderable(image, options = {}) {
-    const engine = await getEngine();
-    const normalizedOptions = normalizeProcessingOptions(options);
-    const canvas = await engine.removeWatermarkFromImage(image, normalizedOptions);
-
+    const canvas = await processRenderableToCanvas(image, options);
     return {
       processedBlob: await encodeCanvas(canvas),
       processedMeta: withProcessorPath(canvas.__watermarkMeta || null, processorPath)
@@ -85,7 +111,7 @@ export function createCachedImageProcessor({
   };
 }
 
-export function createMainThreadBlobProcessor({
+function createMainThreadBlobProcessor({
   loadRenderable = loadImageFromBlob,
   processRenderable = createCachedImageProcessor()
 } = {}) {
@@ -121,7 +147,7 @@ export function createSharedBlobProcessor({
   };
 }
 
-export const processWatermarkBlobOnMainThread = createMainThreadBlobProcessor();
+const processWatermarkBlobOnMainThread = createMainThreadBlobProcessor();
 const processWatermarkBlobWithBestPath = createSharedBlobProcessor();
 
 export async function processWatermarkBlob(blob, options = { adaptiveMode: 'always' }) {

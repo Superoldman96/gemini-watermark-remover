@@ -84,7 +84,10 @@ async function listInputImages(dirPath) {
         .map((entry) => path.join(dirPath, entry.name))
         .filter((filePath) => {
             const ext = path.extname(filePath).toLowerCase();
-            return IMAGE_EXTENSIONS.has(ext) && !filePath.toLowerCase().includes('-fix.');
+            const normalizedPath = filePath.toLowerCase();
+            return IMAGE_EXTENSIONS.has(ext)
+                && !normalizedPath.includes('-fix.')
+                && !normalizedPath.includes('-after.');
         })
         .sort((a, b) => a.localeCompare(b));
 }

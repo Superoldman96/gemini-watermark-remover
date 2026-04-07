@@ -1,6 +1,6 @@
 import { isGeminiGeneratedAssetUrl, isGeminiPreviewAssetUrl } from '../userscript/urlUtils.js';
 
-export function shouldFetchBlobDirectly(sourceUrl) {
+function shouldFetchBlobDirectly(sourceUrl) {
   return typeof sourceUrl === 'string'
     && (sourceUrl.startsWith('blob:') || sourceUrl.startsWith('data:'));
 }

@@ -79,8 +79,3 @@ test('parseUserscriptBenchmarkCliArgs should expand both scenarios and split sam
     assert.equal(parsed.warmupIterations, 2);
     assert.match(parsed.outputPath, /custom\.json$/);
 });
-
-test('package.json should expose userscript benchmark command', () => {
-    const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
-    assert.equal(pkg.scripts['benchmark:userscript'], 'node scripts/userscript-benchmark.js');
-});

@@ -1,4 +1,11 @@
 import { normalizeErrorMessage } from '../shared/errorUtils.js';
+import {
+  blobBridgeResultToPayload,
+  buildBlobBridgeResult,
+  createBlobBridgeResultFromResponse,
+  createBridgeRequestId,
+  installWindowMessageBridge
+} from './bridgeShared.js';
 
 export const PAGE_PROCESS_REQUEST = 'gwr:page-process-request';
 export const PAGE_PROCESS_RESPONSE = 'gwr:page-process-response';
@@ -26,30 +33,6 @@ function isAllowedMessageSource(eventSource, targetWindow) {
   } catch {}
 
   return false;
-}
-
-function buildBlobResult(processedBlob, processedMeta = null) {
-  return {
-    processedBlob,
-    processedMeta
-  };
-}
-
-async function blobResultToPayload(result) {
-  const normalizedResult = result instanceof Blob
-    ? buildBlobResult(result, null)
-    : buildBlobResult(result?.processedBlob, result?.processedMeta ?? null);
-  const processedBlob = normalizedResult.processedBlob;
-  if (!(processedBlob instanceof Blob)) {
-    throw new Error('Page bridge processor must return a Blob');
-  }
-
-  const processedBuffer = await processedBlob.arrayBuffer();
-  return {
-    processedBuffer,
-    mimeType: processedBlob.type || 'image/png',
-    meta: normalizedResult.processedMeta ?? null
-  };
 }
 
 export function createPageProcessBridgeServer({
@@ -94,7 +77,9 @@ export function createPageProcessBridgeServer({
         throw new Error(`Unknown page bridge action: ${action}`);
       }
 
-      const payload = await blobResultToPayload(result);
+      const payload = await blobBridgeResultToPayload(result, {
+        invalidBlobMessage: 'Page bridge processor must return a Blob'
+      });
       targetWindow.postMessage({
         type: PAGE_PROCESS_RESPONSE,
         requestId,
@@ -120,43 +105,16 @@ export function installPageProcessBridge(options = {}) {
     targetWindow = globalThis.window || null
   } = options;
 
-  if (!targetWindow || typeof targetWindow.addEventListener !== 'function') {
-    return null;
-  }
-  if (targetWindow[PAGE_PROCESS_BRIDGE_FLAG]) {
-    return targetWindow[PAGE_PROCESS_BRIDGE_FLAG];
-  }
-
-  const handler = createPageProcessBridgeServer({
-    ...options,
-    targetWindow
-  });
-
-  const listener = (event) => {
-    void handler(event);
-  };
-  targetWindow.addEventListener('message', listener);
-  targetWindow[PAGE_PROCESS_BRIDGE_FLAG] = {
-    handler,
-    dispose() {
-      targetWindow.removeEventListener?.('message', listener);
-      delete targetWindow[PAGE_PROCESS_BRIDGE_FLAG];
+  return installWindowMessageBridge({
+    targetWindow,
+    bridgeFlag: PAGE_PROCESS_BRIDGE_FLAG,
+    createHandler() {
+      return createPageProcessBridgeServer({
+        ...options,
+        targetWindow
+      });
     }
-  };
-  return targetWindow[PAGE_PROCESS_BRIDGE_FLAG];
-}
-
-function createRequestId() {
-  return `gwr-page-bridge-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function createBlobResultFromResponse(result = {}) {
-  return {
-    processedBlob: new Blob([result.processedBuffer], {
-      type: result.mimeType || 'image/png'
-    }),
-    processedMeta: result.meta ?? null
-  };
+  });
 }
 
 function sanitizeSerializableAssetIds(assetIds = null) {
@@ -254,7 +212,7 @@ export function createPageProcessBridgeClient({
     }
 
     const inputBuffer = await blob.arrayBuffer();
-    const requestId = createRequestId();
+    const requestId = createBridgeRequestId('gwr-page-bridge');
     const sanitizedOptions = sanitizePageProcessOptions(options);
 
     try {
@@ -280,7 +238,7 @@ export function createPageProcessBridgeClient({
             reject(new Error(normalizeErrorMessage(event.data.error, 'Page bridge failed')));
             return;
           }
-          resolve(createBlobResultFromResponse(event.data.result));
+          resolve(createBlobBridgeResultFromResponse(event.data.result));
         };
 
         const timeoutId = globalThis.setTimeout(() => {
@@ -317,7 +275,7 @@ export function createPageProcessBridgeClient({
       }
       const result = await request('remove-watermark-blob', blob, options, async (inputBlob, inputOptions) => {
         const processedBlob = await fallbackRemoveWatermarkFromBlob(inputBlob, inputOptions);
-        return buildBlobResult(processedBlob, null);
+        return buildBlobBridgeResult(processedBlob, null);
       });
       return result.processedBlob;
     }

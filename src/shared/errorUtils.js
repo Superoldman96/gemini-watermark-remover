@@ -40,7 +40,7 @@ export function normalizeErrorMessage(error, fallback = 'Unknown error') {
   return fallback;
 }
 
-export function buildErrorDebugInfo(error) {
+function buildErrorDebugInfo(error) {
   if (error instanceof Error) {
     return {
       name: error.name,

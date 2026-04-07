@@ -1,17 +1,14 @@
-import { WatermarkEngine } from '../core/watermarkEngine.js';
 import { canvasToBlob } from '../core/canvasBlob.js';
+import {
+  createCachedEngineGetter,
+  createCachedCanvasProcessor,
+  loadImageElementFromBlob
+} from '../shared/imageProcessing.js';
 import { toWorkerScriptUrl } from './trustedTypes.js';
 import { isTimingDebugEnabled, shouldUseInlineWorker } from './runtimeFlags.js';
 
 const DEFAULT_INLINE_WORKER_TIMEOUT_MS = 120000;
 const DEFAULT_WORKER_PING_TIMEOUT_MS = 3000;
-
-const loadImage = (src) => new Promise((resolve, reject) => {
-  const img = new Image();
-  img.onload = () => resolve(img);
-  img.onerror = reject;
-  img.src = src;
-});
 
 function toError(errorLike, fallback = 'Inline worker error') {
   if (errorLike instanceof Error) return errorLike;
@@ -134,7 +131,6 @@ export function createUserscriptProcessingRuntime({
   env = globalThis,
   logger = console
 } = {}) {
-  let enginePromise = null;
   let workerClient = null;
   const timingDebugEnabled = isTimingDebugEnabled(env);
 
@@ -145,15 +141,10 @@ export function createUserscriptProcessingRuntime({
     };
   }
 
-  async function getEngine() {
-    if (!enginePromise) {
-      enginePromise = WatermarkEngine.create().catch((error) => {
-        enginePromise = null;
-        throw error;
-      });
-    }
-    return enginePromise;
-  }
+  const getEngine = createCachedEngineGetter();
+  const processRenderableToCanvas = createCachedCanvasProcessor({
+    getEngine
+  });
 
   function disableInlineWorker(reason) {
     if (!workerClient) return;
@@ -170,60 +161,55 @@ export function createUserscriptProcessingRuntime({
   async function processBlobOnMainThread(blob, options = {}) {
     const startedAt = nowMs();
     const engineWaitStartedAt = nowMs();
-    const engine = await getEngine();
+    await getEngine();
     const engineWaitMs = nowMs() - engineWaitStartedAt;
-    const blobUrl = URL.createObjectURL(blob);
-    try {
-      const decodeStartedAt = nowMs();
-      const img = await loadImage(blobUrl);
-      const decodeMs = nowMs() - decodeStartedAt;
-      const removeStartedAt = nowMs();
-      const canvas = await engine.removeWatermarkFromImage(img, {
-        ...options,
-        debugTimings: timingDebugEnabled
-      });
-      const removeWatermarkMs = nowMs() - removeStartedAt;
-      const encodeStartedAt = nowMs();
-      const processedBlob = await canvasToBlob(canvas);
-      const encodeMs = nowMs() - encodeStartedAt;
-      const totalMs = nowMs() - startedAt;
-      const engineStageTimings = canvas?.__watermarkTiming ?? null;
-      const processorTimings = engineStageTimings?.processor ?? null;
-      const selectionDebug = canvas?.__watermarkMeta?.selectionDebug ?? null;
-      emitTiming('process-blob-main-thread', {
-        sourceBlobType: blob?.type || '',
-        sourceBlobSize: blob?.size || 0,
-        imageWidth: img?.width || 0,
-        imageHeight: img?.height || 0,
-        engineWaitMs,
-        decodeMs,
-        removeWatermarkMs,
-        encodeMs,
-        totalMs,
-        adaptiveMode: options?.adaptiveMode || '',
-        maxPasses: options?.maxPasses ?? null,
-        engineStageTimings,
-        engineDrawMs: engineStageTimings?.drawMs ?? null,
-        engineGetImageDataMs: engineStageTimings?.getImageDataMs ?? null,
-        engineProcessWatermarkImageDataMs: engineStageTimings?.processWatermarkImageDataMs ?? null,
-        enginePutImageDataMs: engineStageTimings?.putImageDataMs ?? null,
-        processorInitialSelectionMs: processorTimings?.initialSelectionMs ?? null,
-        processorFirstPassMetricsMs: processorTimings?.firstPassMetricsMs ?? null,
-        processorExtraPassMs: processorTimings?.extraPassMs ?? null,
-        processorFinalMetricsMs: processorTimings?.finalMetricsMs ?? null,
-        processorRecalibrationMs: processorTimings?.recalibrationMs ?? null,
-        processorSubpixelRefinementMs: processorTimings?.subpixelRefinementMs ?? null,
-        processorPreviewEdgeCleanupMs: processorTimings?.previewEdgeCleanupMs ?? null,
-        processorTotalMs: processorTimings?.totalMs ?? null,
-        selectionDebug
-      });
-      return {
-        processedBlob,
-        processedMeta: canvas.__watermarkMeta || null
-      };
-    } finally {
-      URL.revokeObjectURL(blobUrl);
-    }
+    const decodeStartedAt = nowMs();
+    const img = await loadImageElementFromBlob(blob);
+    const decodeMs = nowMs() - decodeStartedAt;
+    const removeStartedAt = nowMs();
+    const canvas = await processRenderableToCanvas(img, {
+      ...options,
+      debugTimings: timingDebugEnabled
+    });
+    const removeWatermarkMs = nowMs() - removeStartedAt;
+    const encodeStartedAt = nowMs();
+    const processedBlob = await canvasToBlob(canvas);
+    const encodeMs = nowMs() - encodeStartedAt;
+    const totalMs = nowMs() - startedAt;
+    const engineStageTimings = canvas?.__watermarkTiming ?? null;
+    const processorTimings = engineStageTimings?.processor ?? null;
+    const selectionDebug = canvas?.__watermarkMeta?.selectionDebug ?? null;
+    emitTiming('process-blob-main-thread', {
+      sourceBlobType: blob?.type || '',
+      sourceBlobSize: blob?.size || 0,
+      imageWidth: img?.width || 0,
+      imageHeight: img?.height || 0,
+      engineWaitMs,
+      decodeMs,
+      removeWatermarkMs,
+      encodeMs,
+      totalMs,
+      adaptiveMode: options?.adaptiveMode || '',
+      maxPasses: options?.maxPasses ?? null,
+      engineStageTimings,
+      engineDrawMs: engineStageTimings?.drawMs ?? null,
+      engineGetImageDataMs: engineStageTimings?.getImageDataMs ?? null,
+      engineProcessWatermarkImageDataMs: engineStageTimings?.processWatermarkImageDataMs ?? null,
+      enginePutImageDataMs: engineStageTimings?.putImageDataMs ?? null,
+      processorInitialSelectionMs: processorTimings?.initialSelectionMs ?? null,
+      processorFirstPassMetricsMs: processorTimings?.firstPassMetricsMs ?? null,
+      processorExtraPassMs: processorTimings?.extraPassMs ?? null,
+      processorFinalMetricsMs: processorTimings?.finalMetricsMs ?? null,
+      processorRecalibrationMs: processorTimings?.recalibrationMs ?? null,
+      processorSubpixelRefinementMs: processorTimings?.subpixelRefinementMs ?? null,
+      processorPreviewEdgeCleanupMs: processorTimings?.previewEdgeCleanupMs ?? null,
+      processorTotalMs: processorTimings?.totalMs ?? null,
+      selectionDebug
+    });
+    return {
+      processedBlob,
+      processedMeta: canvas.__watermarkMeta || null
+    };
   }
 
   async function processBlobWithBestPath(blob, options = {}) {

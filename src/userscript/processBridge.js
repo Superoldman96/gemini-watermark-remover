@@ -1,33 +1,16 @@
 import { normalizeErrorMessage } from '../shared/errorUtils.js';
+import {
+  blobBridgeResultToPayload,
+  buildBlobBridgeResult,
+  createBlobBridgeResultFromResponse,
+  createBridgeRequestId,
+  installWindowMessageBridge
+} from './bridgeShared.js';
 
 export const USERSCRIPT_PROCESS_REQUEST = 'gwr:userscript-process-request';
 export const USERSCRIPT_PROCESS_RESPONSE = 'gwr:userscript-process-response';
 
 const USERSCRIPT_PROCESS_BRIDGE_FLAG = '__gwrUserscriptProcessBridgeInstalled__';
-
-function buildBlobResult(processedBlob, processedMeta = null) {
-  return {
-    processedBlob,
-    processedMeta
-  };
-}
-
-async function blobResultToPayload(result) {
-  const normalizedResult = result instanceof Blob
-    ? buildBlobResult(result, null)
-    : buildBlobResult(result?.processedBlob, result?.processedMeta ?? null);
-  const processedBlob = normalizedResult.processedBlob;
-  if (!(processedBlob instanceof Blob)) {
-    throw new Error('Bridge processor must return a Blob');
-  }
-
-  const processedBuffer = await processedBlob.arrayBuffer();
-  return {
-    processedBuffer,
-    mimeType: processedBlob.type || 'image/png',
-    meta: normalizedResult.processedMeta ?? null
-  };
-}
 
 export function createUserscriptProcessBridgeServer({
   targetWindow = globalThis.window || null,
@@ -71,7 +54,9 @@ export function createUserscriptProcessBridgeServer({
         throw new Error(`Unknown bridge action: ${action}`);
       }
 
-      const payload = await blobResultToPayload(result);
+      const payload = await blobBridgeResultToPayload(result, {
+        invalidBlobMessage: 'Bridge processor must return a Blob'
+      });
       targetWindow.postMessage({
         type: USERSCRIPT_PROCESS_RESPONSE,
         requestId,
@@ -97,43 +82,16 @@ export function installUserscriptProcessBridge(options = {}) {
     targetWindow = globalThis.window || null
   } = options;
 
-  if (!targetWindow || typeof targetWindow.addEventListener !== 'function') {
-    return null;
-  }
-  if (targetWindow[USERSCRIPT_PROCESS_BRIDGE_FLAG]) {
-    return targetWindow[USERSCRIPT_PROCESS_BRIDGE_FLAG];
-  }
-
-  const handler = createUserscriptProcessBridgeServer({
-    ...options,
-    targetWindow
-  });
-
-  const listener = (event) => {
-    void handler(event);
-  };
-  targetWindow.addEventListener('message', listener);
-  targetWindow[USERSCRIPT_PROCESS_BRIDGE_FLAG] = {
-    handler,
-    dispose() {
-      targetWindow.removeEventListener?.('message', listener);
-      delete targetWindow[USERSCRIPT_PROCESS_BRIDGE_FLAG];
+  return installWindowMessageBridge({
+    targetWindow,
+    bridgeFlag: USERSCRIPT_PROCESS_BRIDGE_FLAG,
+    createHandler() {
+      return createUserscriptProcessBridgeServer({
+        ...options,
+        targetWindow
+      });
     }
-  };
-  return targetWindow[USERSCRIPT_PROCESS_BRIDGE_FLAG];
-}
-
-function createRequestId() {
-  return `gwr-us-bridge-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function createBlobResultFromResponse(result = {}) {
-  return {
-    processedBlob: new Blob([result.processedBuffer], {
-      type: result.mimeType || 'image/png'
-    }),
-    processedMeta: result.meta ?? null
-  };
+  });
 }
 
 export function createUserscriptProcessBridgeClient({
@@ -158,7 +116,7 @@ export function createUserscriptProcessBridgeClient({
     }
 
     const inputBuffer = await blob.arrayBuffer();
-    const requestId = createRequestId();
+    const requestId = createBridgeRequestId('gwr-us-bridge');
 
     try {
       return await new Promise((resolve, reject) => {
@@ -183,7 +141,7 @@ export function createUserscriptProcessBridgeClient({
             reject(new Error(normalizeErrorMessage(event.data.error, 'Userscript bridge failed')));
             return;
           }
-          resolve(createBlobResultFromResponse(event.data.result));
+          resolve(createBlobBridgeResultFromResponse(event.data.result));
         };
 
         const timeoutId = globalThis.setTimeout(() => {
@@ -220,7 +178,7 @@ export function createUserscriptProcessBridgeClient({
       }
       const result = await request('remove-watermark-blob', blob, options, async (inputBlob, inputOptions) => {
         const processedBlob = await fallbackRemoveWatermarkFromBlob(inputBlob, inputOptions);
-        return buildBlobResult(processedBlob, null);
+        return buildBlobBridgeResult(processedBlob, null);
       });
       return result.processedBlob;
     }

@@ -1,13 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
-
-test('package.json should expose cleanup scripts', () => {
-  const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
-
-  assert.equal(pkg.scripts.clean, 'node scripts/clean.js');
-  assert.equal(pkg.scripts['clean:all'], 'node scripts/clean.js --include-profile');
-});
+import { existsSync } from 'node:fs';
 
 test('clean script should default to generated artifacts and keep the fixed Chrome profile optional', async () => {
   const scriptUrl = new URL('../../scripts/clean.js', import.meta.url);

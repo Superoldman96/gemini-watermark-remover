@@ -52,12 +52,6 @@ test('buildTampermonkeyProfileLaunchArgs should include fixed profile, proxy byp
   assert.equal(args.at(-1), 'https://example.com');
 });
 
-test('package.json should expose a manual fixed-profile launcher', () => {
-  const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
-
-  assert.equal(pkg.scripts['probe:tm:profile'], 'node scripts/open-tampermonkey-profile.js');
-});
-
 test('scripts directory should expose a fixed-profile launcher cmd script', () => {
   const scriptPath = new URL('../../scripts/open-fixed-chrome-profile.cmd', import.meta.url);
   assert.equal(existsSync(scriptPath), true);

@@ -159,7 +159,7 @@ function shouldSearchNearbyStandardCandidate(candidate, originalImageData) {
         );
 }
 
-export function resolveAlphaMapForSize(size, { alpha48, alpha96, getAlphaMap } = {}) {
+function resolveAlphaMapForSize(size, { alpha48, alpha96, getAlphaMap } = {}) {
     if (size === 48) return alpha48;
     if (size === 96) return alpha96;
 
@@ -275,7 +275,7 @@ export function evaluateRestorationCandidate({
     };
 }
 
-export function pickBestValidatedCandidate(candidates) {
+function pickBestValidatedCandidate(candidates) {
     const accepted = candidates.filter((candidate) => candidate?.accepted);
     if (accepted.length === 0) return null;
 
@@ -501,7 +501,7 @@ function shouldPreferPreviewAnchorCandidate(currentBest, candidate) {
         candidateSpatial >= currentSpatial + 0.05;
 }
 
-export function findBestTemplateWarp({
+function findBestTemplateWarp({
     originalImageData,
     alphaMap,
     position,

@@ -31,6 +31,7 @@ export async function listBenchmarkSampleAssets(sampleDir = path.resolve('src/as
     return (await readdir(sampleDir))
         .filter((name) => IMAGE_EXTENSIONS.has(path.extname(name).toLowerCase()))
         .filter((name) => !name.includes('-fix.'))
+        .filter((name) => !name.includes('-after.'))
         .sort((left, right) => left.localeCompare(right))
         .map((fileName) => ({
             fileName,

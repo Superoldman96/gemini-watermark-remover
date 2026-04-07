@@ -1,6 +1,7 @@
 import { createActionContextProvider } from '../shared/actionContextCompat.js';
 import { resolveImageSessionContext } from '../shared/imageSessionContext.js';
 import { getDefaultImageSessionStore } from '../shared/imageSessionStore.js';
+import { canvasToBlob } from '../core/canvasBlob.js';
 
 function isImageMimeType(type) {
   return typeof type === 'string' && /^image\//i.test(type);
@@ -66,22 +67,6 @@ async function notifyActionCriticalFailure(onActionCriticalFailure, payload) {
   }
 }
 
-function canvasToBlob(canvas, type = 'image/png') {
-  return new Promise((resolve, reject) => {
-    if (!canvas || typeof canvas.toBlob !== 'function') {
-      reject(new Error('Canvas toBlob unavailable'));
-      return;
-    }
-    canvas.toBlob((blob) => {
-      if (blob) {
-        resolve(blob);
-        return;
-      }
-      reject(new Error('Canvas toBlob returned null'));
-    }, type);
-  });
-}
-
 async function createBlobFromObjectUrlImage(objectUrl, imageElement, targetWindow = globalThis) {
   const ImageClass = targetWindow?.Image || globalThis.Image;
   const documentRef = imageElement?.ownerDocument || targetWindow?.document || globalThis.document;
@@ -115,7 +100,10 @@ async function createBlobFromObjectUrlImage(objectUrl, imageElement, targetWindo
     throw new Error('2D canvas context unavailable');
   }
   context.drawImage(image, 0, 0, width, height);
-  return canvasToBlob(canvas, 'image/png');
+  return canvasToBlob(canvas, 'image/png', {
+    unavailableMessage: 'Canvas toBlob unavailable',
+    nullBlobMessage: 'Canvas toBlob returned null'
+  });
 }
 
 async function buildClipboardReplacementItems(items, replacementBlob, ClipboardItemClass) {

@@ -136,7 +136,7 @@ export function resolveOfficialGeminiWatermarkConfig(width, height) {
     return getEntryConfig(match);
 }
 
-export function isOfficialOrKnownGeminiDimensions(width, height) {
+function isOfficialOrKnownGeminiDimensions(width, height) {
     return matchOfficialGeminiImageSize(width, height) !== null;
 }
 

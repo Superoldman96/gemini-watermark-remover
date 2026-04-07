@@ -188,7 +188,7 @@ function getTemplate(cache, alpha96, size) {
     return tpl;
 }
 
-export function shiftAlphaMap(alphaMap, size, dx, dy) {
+function shiftAlphaMap(alphaMap, size, dx, dy) {
     if (!Number.isFinite(dx) || !Number.isFinite(dy) || size <= 0) return new Float32Array(0);
     return warpAlphaMap(alphaMap, size, { dx, dy, scale: 1 });
 }

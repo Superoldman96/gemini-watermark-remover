@@ -1,4 +1,5 @@
 import { WatermarkEngine } from '../core/watermarkEngine.js';
+import { canvasToBlob } from '../core/canvasBlob.js';
 
 let enginePromise = null;
 
@@ -15,26 +16,6 @@ function asErrorPayload(error) {
         message: error.message || String(error),
         stack: error.stack || null
     };
-}
-
-async function canvasToPngBlob(canvas) {
-    if (typeof canvas.convertToBlob === 'function') {
-        return await canvas.convertToBlob({ type: 'image/png' });
-    }
-
-    if (typeof canvas.toBlob === 'function') {
-        return await new Promise((resolve, reject) => {
-            canvas.toBlob((blob) => {
-                if (blob) {
-                    resolve(blob);
-                } else {
-                    reject(new Error('Failed to encode PNG blob'));
-                }
-            }, 'image/png');
-        });
-    }
-
-    throw new Error('Canvas blob export API is unavailable');
 }
 
 self.addEventListener('message', async (event) => {
@@ -64,7 +45,9 @@ self.addEventListener('message', async (event) => {
             imageBitmap.close();
         }
 
-        const pngBlob = await canvasToPngBlob(canvas);
+        const pngBlob = await canvasToBlob(canvas, 'image/png', {
+            nullBlobMessage: 'Failed to encode PNG blob'
+        });
         const processedBuffer = await pngBlob.arrayBuffer();
 
         self.postMessage({

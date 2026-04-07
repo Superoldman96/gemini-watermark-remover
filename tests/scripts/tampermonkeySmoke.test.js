@@ -71,13 +71,6 @@ test('shouldReuseProbePage should reuse an already opened probe page on the same
   );
 });
 
-test('package.json should expose tampermonkey probe commands', () => {
-  const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
-
-  assert.equal(pkg.scripts['probe:tm'], 'node scripts/tampermonkey-smoke.js run');
-  assert.equal(pkg.scripts['probe:tm:setup'], 'node scripts/tampermonkey-smoke.js setup');
-});
-
 test('maybeRunFreshnessPreflight should gate run mode on stale installed userscripts but skip setup mode', async () => {
   const staleResult = {
     reportPath: '.artifacts/tampermonkey-freshness/latest.json',

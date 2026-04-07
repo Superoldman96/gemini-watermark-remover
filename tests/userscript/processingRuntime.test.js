@@ -156,3 +156,94 @@ test('createUserscriptProcessingRuntime should include selectionDebug in main-th
     }
   }
 });
+
+test('createUserscriptProcessingRuntime should report engine wait time when engine creation is slow', async () => {
+  const originalEngineCreate = WatermarkEngine.create;
+  const originalImage = globalThis.Image;
+  const originalURL = globalThis.URL;
+  const originalCreateObjectURL = globalThis.URL?.createObjectURL;
+  const originalRevokeObjectURL = globalThis.URL?.revokeObjectURL;
+
+  const logs = [];
+
+  class MockImage {
+    constructor() {
+      this.width = 0;
+      this.height = 0;
+      this.onload = null;
+      this.onerror = null;
+    }
+
+    set src(value) {
+      this._src = value;
+      this.width = 512;
+      this.height = 512;
+      queueMicrotask(() => {
+        this.onload?.();
+      });
+    }
+  }
+
+  const mockCanvas = {
+    __watermarkMeta: {
+      applied: true
+    },
+    __watermarkTiming: {
+      processor: {
+        totalMs: 1
+      }
+    },
+    toBlob(callback) {
+      callback(new Blob(['processed'], { type: 'image/png' }));
+    }
+  };
+
+  WatermarkEngine.create = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    return {
+      async removeWatermarkFromImage() {
+        return mockCanvas;
+      }
+    };
+  };
+  globalThis.Image = MockImage;
+  globalThis.URL = originalURL;
+  globalThis.URL.createObjectURL = () => 'blob:runtime-engine-wait';
+  globalThis.URL.revokeObjectURL = () => {};
+
+  try {
+    const runtime = createUserscriptProcessingRuntime({
+      workerCode: '',
+      env: {
+        __GWR_DEBUG_TIMINGS__: true
+      },
+      logger: {
+        info(message, payload) {
+          logs.push([message, payload]);
+        },
+        warn() {},
+        log() {}
+      }
+    });
+
+    await runtime.processWatermarkBlob(
+      new Blob(['raw'], { type: 'image/png' }),
+      { adaptiveMode: 'always' }
+    );
+
+    assert.equal(logs.length, 1);
+    assert.equal(logs[0][0], '[Gemini Watermark Remover] timing process-blob-main-thread');
+    assert.ok(
+      typeof logs[0][1].engineWaitMs === 'number' && logs[0][1].engineWaitMs >= 20,
+      `expected engineWaitMs to capture engine initialization delay, got ${logs[0][1].engineWaitMs}`
+    );
+  } finally {
+    WatermarkEngine.create = originalEngineCreate;
+    globalThis.Image = originalImage;
+    globalThis.URL = originalURL;
+    if (globalThis.URL) {
+      globalThis.URL.createObjectURL = originalCreateObjectURL;
+      globalThis.URL.revokeObjectURL = originalRevokeObjectURL;
+    }
+  }
+});

@@ -199,6 +199,8 @@ pnpm test
 
 Regression tests include image fixtures from `src/assets/samples/`.
 Source samples stay in git.
+Naming and retention rules for those fixtures are documented in `src/assets/samples/README.md`.
+Complex preview/download validation notes are documented in `docs/complex-figure-verification-checklist.md`.
 Local files under `src/assets/samples/fix/` are optional snapshot outputs for manual regression checks and are intentionally not tracked by git.
 
 ## Release Notes
