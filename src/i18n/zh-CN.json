@@ -1,10 +1,12 @@
 {
-  "title": "Gemini Watermark Remover - Gemini 无损去水印工具",
+  "title": "Gemini Watermark Remover - 开发者预览",
   "header.title": "Gemini Watermark Remover",
   "nav.userscript": "安装油猴脚本",
   "nav.principle": "去水印原理",
   "main.title": "Gemini AI 图像去水印",
   "main.subtitle": "基于反向 Alpha 混合算法，纯浏览器本地处理，免费、极速、无损",
+  "preview.notice": "这是开发者预览站，主要用于测试较新的改动。大多数用户请使用 Pilio 官方在线工具。",
+  "preview.cta": "前往 Pilio 官方在线工具",
   "upload.text": "点击选择 或 拖拽图片至此",
   "upload.hint": "支持 JPG, PNG, WebP",
   "step.1": "选择原始图片",

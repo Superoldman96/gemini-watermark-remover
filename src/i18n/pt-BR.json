@@ -1,10 +1,12 @@
 {
-	"title": "Gemini Watermark Remover - Ferramenta de Remoção de Marcas d'água Sem Perda de Qualidade",
+	"title": "Gemini Watermark Remover - Prévia para Desenvolvedores",
 	"header.title": "Gemini Watermark Remover",
 	"nav.userscript": "Instalar script de usuário para Gemini",
 	"nav.principle": "Como Funciona?",
 	"main.title": "Remoção de marca d'água da IA Gemini",
 	"main.subtitle": "Baseado em algoritmo de mistura alfa reversa, processamento totalmente no navegador, gratuito, rápido e sem perdas.",
+	"preview.notice": "Esta é a prévia para desenvolvedores com mudanças mais novas em teste. A maioria das pessoas deve usar a ferramenta online oficial da Pilio.",
+	"preview.cta": "Abrir a ferramenta online oficial da Pilio",
 	"upload.text": "Clique para selecionar ou arraste as imagens para cá.",
 	"upload.hint": "Suporta JPG, PNG, WebP",
 	"step.1": "Selecione a imagem original",

@@ -1,10 +1,12 @@
 {
-  "title": "Gemini Watermark Remover - Lossless Watermark Removal Tool",
+  "title": "Gemini Watermark Remover - Developer Preview",
   "header.title": "Gemini Watermark Remover",
   "nav.userscript": "Install Userscript for Gemini",
   "nav.principle": "How It Works?",
   "main.title": "Gemini AI Watermark Removal",
   "main.subtitle": "Based on reverse alpha blending algorithm, pure browser-side processing, Free, Fast, and Lossless",
+  "preview.notice": "This is the developer preview for newer changes. Most users should use the official Pilio online tool.",
+  "preview.cta": "Open the official Pilio online tool",
   "upload.text": "Click to select or drag images here",
   "upload.hint": "Supports JPG, PNG, WebP",
   "step.1": "Select Original Image",
