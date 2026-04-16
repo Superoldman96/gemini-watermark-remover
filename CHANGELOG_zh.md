@@ -1,5 +1,23 @@
 # 更新日志
 
+## 1.0.11 - 2026-04-17
+
+### SDK
+
+- 新增公共 `runtime-browser` 入口，作为无副作用的浏览器 blob 处理器，供下游页面项目直接复用。
+- 新增公共 `runtime-userscript` 入口，提供窄包装的 userscript runtime 接口，显式暴露 initialize/process/remove/dispose。
+- 为两个 runtime 入口补齐类型声明，让打包后的 TypeScript consumer 可以直接导入。
+
+### 工具链
+
+- 更新了 package exports 与发布白名单，`pnpm pack` 现在会正确包含 runtime 入口及其所需的共享实现文件。
+- 补充了隔离 consumer smoke 覆盖，验证 runtime 子路径可导入，并显式拒绝 `@pilio/gemini-watermark-remover/src/...` 这种深层私有导入。
+
+### 质量
+
+- 新增 runtime 回归测试，覆盖浏览器入口的无副作用导入、默认处理选项、脱离实例调用，以及 userscript worker fallback 行为。
+- 已重新完成面向 page/runtime/sdk/package-consumer 的验证，并对 `1.0.11` 做过一次新的发布 dry run。
+
 ## 1.0.10 - 2026-04-07
 
 ### 油猴脚本

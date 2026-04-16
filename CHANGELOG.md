@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.0.11 - 2026-04-17
+
+### SDK
+
+- Added the new public `runtime-browser` entrypoint as a side-effect-free blob processor for downstream browser consumers.
+- Added the new public `runtime-userscript` entrypoint as a narrow userscript runtime wrapper with explicit initialize/process/remove/dispose methods.
+- Published type declarations for both runtime entrypoints so packed TypeScript consumers can import them directly.
+
+### Tooling
+
+- Updated package exports and published file allowlists so `pnpm pack` now includes the runtime entrypoints and their required shared implementation files.
+- Added isolated consumer smoke coverage that validates runtime subpath imports and rejects deep private imports from `@pilio/gemini-watermark-remover/src/...`.
+
+### Quality
+
+- Added runtime-focused regression tests for side-effect-free browser imports, default processing options, detached runtime methods, and userscript worker fallback behavior.
+- Re-verified the release with targeted page/runtime/sdk/package-consumer tests and a fresh publish dry run for version `1.0.11`.
+
 ## 1.0.10 - 2026-04-07
 
 ### Userscript
