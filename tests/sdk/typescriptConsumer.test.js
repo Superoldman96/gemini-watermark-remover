@@ -6,7 +6,7 @@ import { packProjectTarball, runCommand } from './testUtils.js';
 
 const ROOT_DIR = process.cwd();
 
-test('packed sdk should compile in an isolated TypeScript consumer without DOM libs', async () => {
+test('packed sdk should compile in an isolated TypeScript consumer with public runtime subpaths', async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), 'wm-ts-consumer-'));
     const nodeModulesDir = path.join(tempDir, 'node_modules');
     const packageRoot = path.join(nodeModulesDir, '@pilio', 'gemini-watermark-remover');

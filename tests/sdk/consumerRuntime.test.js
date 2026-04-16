@@ -26,8 +26,16 @@ import {
     removeWatermarkFromImageDataSync
 } from '@pilio/gemini-watermark-remover';
 import { removeWatermarkFromBuffer, inferMimeTypeFromPath } from '@pilio/gemini-watermark-remover/node';
+import { createBrowserRuntimeProcessor } from '@pilio/gemini-watermark-remover/runtime-browser';
+import { createUserscriptRuntimeProcessor } from '@pilio/gemini-watermark-remover/runtime-userscript';
 
 const engine = await createWatermarkEngine();
+const browserRuntime = createBrowserRuntimeProcessor({
+    logger: { info() {}, warn() {}, log() {}, error() {} }
+});
+const userscriptRuntime = createUserscriptRuntimeProcessor({
+    logger: { info() {}, warn() {}, log() {}, error() {} }
+});
 const imageData = {
     width: 320,
     height: 320,
@@ -68,16 +76,29 @@ const bufferResult = await removeWatermarkFromBuffer(
 );
 
 assert.equal(typeof engine.getAlphaMap, 'function');
+assert.equal(typeof browserRuntime.processWatermarkBlob, 'function');
+assert.equal(typeof userscriptRuntime.processWatermarkBlob, 'function');
+assert.equal(typeof userscriptRuntime.initialize, 'function');
 assert.equal(syncResult.imageData.width, 320);
 assert.equal(typeof syncResult.meta.applied, 'boolean');
 assert.equal(inferMimeTypeFromPath('example.png'), 'image/png');
 assert.ok(Buffer.isBuffer(bufferResult.buffer));
 assert.equal(typeof bufferResult.meta.applied, 'boolean');
+
+let privateImportCode = 'no-error';
+try {
+    await import('@pilio/gemini-watermark-remover/src/core/watermarkProcessor.js');
+} catch (error) {
+    privateImportCode = error && typeof error === 'object' ? error.code || error.name || 'unknown-error' : 'unknown-error';
+}
+
+assert.equal(privateImportCode, 'ERR_PACKAGE_PATH_NOT_EXPORTED');
 console.log(JSON.stringify({
     syncWidth: syncResult.imageData.width,
     syncMetaAppliedType: typeof syncResult.meta.applied,
     bufferLength: bufferResult.buffer.length,
-    bufferMetaAppliedType: typeof bufferResult.meta.applied
+    bufferMetaAppliedType: typeof bufferResult.meta.applied,
+    privateImportCode
 }));
 `, 'utf8');
 
@@ -88,4 +109,5 @@ console.log(JSON.stringify({
     assert.equal(output.syncMetaAppliedType, 'boolean');
     assert.equal(output.bufferMetaAppliedType, 'boolean');
     assert.ok(output.bufferLength > 0);
+    assert.equal(output.privateImportCode, 'ERR_PACKAGE_PATH_NOT_EXPORTED');
 });

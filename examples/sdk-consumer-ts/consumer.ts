@@ -8,6 +8,8 @@ import {
     inferMimeTypeFromPath,
     type NodeBufferRemovalOptions
 } from '@pilio/gemini-watermark-remover/node';
+import { createBrowserRuntimeProcessor } from '@pilio/gemini-watermark-remover/runtime-browser';
+import { createUserscriptRuntimeProcessor } from '@pilio/gemini-watermark-remover/runtime-userscript';
 
 const imageData: ImageDataLike = {
     width: 64,
@@ -42,6 +44,12 @@ const manualMeta: WatermarkMeta = {
     passStopReason: null
 };
 const mimeType = inferMimeTypeFromPath('demo.png');
+const browserRuntime = createBrowserRuntimeProcessor({
+    logger: console
+});
+const userscriptRuntime = createUserscriptRuntimeProcessor({
+    logger: console
+});
 
 const options: NodeBufferRemovalOptions = {
     mimeType,
@@ -57,3 +65,6 @@ void enginePromise;
 void result.meta;
 void manualMeta;
 void options;
+void browserRuntime.processWatermarkBlob;
+void userscriptRuntime.processWatermarkBlob;
+void userscriptRuntime.initialize;

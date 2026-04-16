@@ -1,7 +1,7 @@
 {
   "name": "@pilio/gemini-watermark-remover",
   "description": "Automatically removes watermarks from Gemini AI generated images",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "author": "GargantuaX",
   "sideEffects": false,
   "files": [
@@ -9,7 +9,10 @@
     "skills/",
     "src/cli/",
     "src/core/",
+    "src/runtime/",
     "src/sdk/",
+    "src/shared/",
+    "src/userscript/",
     "README.md",
     "README_zh.md",
     "LICENSE"
@@ -40,6 +43,14 @@
     "./node": {
       "types": "./src/sdk/node.d.ts",
       "import": "./src/sdk/node.js"
+    },
+    "./runtime-browser": {
+      "types": "./src/runtime/browser.d.ts",
+      "import": "./src/runtime/browser.js"
+    },
+    "./runtime-userscript": {
+      "types": "./src/runtime/userscript.d.ts",
+      "import": "./src/runtime/userscript.js"
     }
   },
   "scripts": {

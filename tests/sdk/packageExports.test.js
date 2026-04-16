@@ -12,10 +12,12 @@ async function exists(filePath) {
     }
 }
 
-test('package should expose browser and image-data sdk subpaths', async () => {
+test('package should expose sdk and runtime public subpaths', async () => {
     const browserSdk = await import('@pilio/gemini-watermark-remover/browser');
     const imageDataSdk = await import('@pilio/gemini-watermark-remover/image-data');
     const nodeSdk = await import('@pilio/gemini-watermark-remover/node');
+    const runtimeBrowserSdk = await import('@pilio/gemini-watermark-remover/runtime-browser');
+    const runtimeUserscriptSdk = await import('@pilio/gemini-watermark-remover/runtime-userscript');
 
     assert.equal(typeof browserSdk.removeWatermarkFromImage, 'function');
     assert.equal(typeof browserSdk.createWatermarkEngine, 'function');
@@ -24,6 +26,8 @@ test('package should expose browser and image-data sdk subpaths', async () => {
     assert.equal(typeof imageDataSdk.createWatermarkEngine, 'function');
     assert.equal(typeof nodeSdk.removeWatermarkFromBuffer, 'function');
     assert.equal(typeof nodeSdk.removeWatermarkFromFile, 'function');
+    assert.equal(typeof runtimeBrowserSdk.createBrowserRuntimeProcessor, 'function');
+    assert.equal(typeof runtimeUserscriptSdk.createUserscriptRuntimeProcessor, 'function');
 });
 
 test('package exports should declare type entrypoints for public sdk surface', async () => {
@@ -34,10 +38,19 @@ test('package exports should declare type entrypoints for public sdk surface', a
     assert.equal(typeof exportsMap['./browser'], 'object');
     assert.equal(typeof exportsMap['./image-data'], 'object');
     assert.equal(typeof exportsMap['./node'], 'object');
+    assert.equal(typeof exportsMap['./runtime-browser'], 'object');
+    assert.equal(typeof exportsMap['./runtime-userscript'], 'object');
     assert.equal(typeof packageJson.types, 'string');
 
     assert.equal(await exists('../../src/sdk/index.d.ts'), true);
     assert.equal(await exists('../../src/sdk/browser.d.ts'), true);
     assert.equal(await exists('../../src/sdk/image-data.d.ts'), true);
     assert.equal(await exists('../../src/sdk/node.d.ts'), true);
+    assert.equal(await exists('../../src/runtime/browser.d.ts'), true);
+    assert.equal(await exists('../../src/runtime/userscript.d.ts'), true);
+
+    assert.equal(exportsMap['./runtime-browser'].types, './src/runtime/browser.d.ts');
+    assert.equal(exportsMap['./runtime-browser'].import, './src/runtime/browser.js');
+    assert.equal(exportsMap['./runtime-userscript'].types, './src/runtime/userscript.d.ts');
+    assert.equal(exportsMap['./runtime-userscript'].import, './src/runtime/userscript.js');
 });

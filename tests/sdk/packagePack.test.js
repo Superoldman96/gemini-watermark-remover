@@ -19,9 +19,20 @@ test('pnpm pack should publish sdk entrypoints without shipping test fixtures', 
         assert.ok(listing.includes('package/src/sdk/browser.js'));
         assert.ok(listing.includes('package/src/sdk/image-data.js'));
         assert.ok(listing.includes('package/src/sdk/node.js'));
+        assert.ok(listing.includes('package/src/runtime/browser.js'));
+        assert.ok(listing.includes('package/src/runtime/browser.d.ts'));
+        assert.ok(listing.includes('package/src/runtime/userscript.js'));
+        assert.ok(listing.includes('package/src/runtime/userscript.d.ts'));
         assert.ok(listing.includes('package/src/core/watermarkProcessor.js'));
+        assert.ok(listing.includes('package/src/core/canvasBlob.js'));
+        assert.ok(listing.includes('package/src/shared/imageProcessing.js'));
         assert.ok(listing.includes('package/src/cli/gwrCli.js'));
         assert.ok(listing.includes('package/src/cli/gwrRemoveCommand.js'));
+        assert.ok(listing.includes('package/src/userscript/pageProcessBridge.js'));
+        assert.ok(listing.includes('package/src/userscript/pageProcessorRuntime.js'));
+        assert.ok(listing.includes('package/src/userscript/processingRuntime.js'));
+        assert.ok(listing.includes('package/src/userscript/runtimeFlags.js'));
+        assert.ok(listing.includes('package/src/userscript/trustedTypes.js'));
         assert.ok(listing.includes('package/bin/gwr.mjs'));
         assert.ok(listing.includes('package/skills/gemini-watermark-remover/SKILL.md'));
         assert.ok(listing.includes('package/skills/gemini-watermark-remover/agents/openai.yaml'));
@@ -34,6 +45,8 @@ test('pnpm pack should publish sdk entrypoints without shipping test fixtures', 
         assert.equal(listing.some((item) => item.startsWith('package/tests/')), false);
         assert.equal(listing.some((item) => item.startsWith('package/public/')), false);
         assert.equal(listing.some((item) => item.startsWith('package/src/assets/')), false);
+        assert.equal(listing.some((item) => item.startsWith('package/src/page/')), false);
+        assert.equal(listing.some((item) => item.startsWith('package/src/worker/')), false);
     } finally {
         await rm(tempDir, { recursive: true, force: true });
     }
