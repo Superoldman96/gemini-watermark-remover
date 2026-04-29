@@ -33,20 +33,10 @@ An open-source tool to **remove Gemini watermarks** from AI-generated images wit
 
 <details open>
 <summary>Click to Expand/Collapse Examples</summary>
-　
-<p>lossless diff example</p>
-<p><img src="docs/lossless_diff.webp"></p>
-
-
-<p>example images</p>
 
 | Original Image | Watermark Removed |
 | :---: | :----: |
-| <img src="docs/1.webp" width="400"> | <img src="docs/unwatermarked_1.webp" width="400"> |
-| <img src="docs/2.webp" width="400"> | <img src="docs/unwatermarked_2.webp" width="400"> |
-| <img src="docs/3.webp" width="400"> | <img src="docs/unwatermarked_3.webp" width="400"> |
-| <img src="docs/4.webp" width="400"> | <img src="docs/unwatermarked_4.webp" width="400"> |
-| <img src="docs/5.webp" width="400"> | <img src="docs/unwatermarked_5.webp" width="400"> |
+| <img src="docs/demo-before.webp" width="400"> | <img src="docs/demo-after.webp" width="400"> |
 
 </details>
 

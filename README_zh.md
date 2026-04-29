@@ -33,20 +33,10 @@
 
 <details open>
 <summary>点击查看/收起示例</summary>
-　
-<p>无损 diff 示例</p>
-<p><img src="docs/lossless_diff.webp"></p>
-
-
-<p>示例图片</p>
 
 | 原图 | 去水印后 |
 | :---: | :----: |
-| <img src="docs/1.webp" width="400"> | <img src="docs/unwatermarked_1.webp" width="400"> |
-| <img src="docs/2.webp" width="400"> | <img src="docs/unwatermarked_2.webp" width="400"> |
-| <img src="docs/3.webp" width="400"> | <img src="docs/unwatermarked_3.webp" width="400"> |
-| <img src="docs/4.webp" width="400"> | <img src="docs/unwatermarked_4.webp" width="400"> |
-| <img src="docs/5.webp" width="400"> | <img src="docs/unwatermarked_5.webp" width="400"> |
+| <img src="docs/demo-before.webp" width="400"> | <img src="docs/demo-after.webp" width="400"> |
 
 </details>
 
