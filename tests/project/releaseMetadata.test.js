@@ -29,3 +29,19 @@ test('release checklists should require updating both changelog files', async ()
     assert.match(releaseZh, /CHANGELOG\.md/);
     assert.match(releaseZh, /CHANGELOG_zh\.md/);
 });
+
+test('release checklists should include the Chrome extension package artifacts', async () => {
+    const packageJson = JSON.parse(await readText('package.json'));
+    const [releaseEn, releaseZh] = await Promise.all([
+        readText('RELEASE.md'),
+        readText('RELEASE_zh.md')
+    ]);
+
+    assert.equal(packageJson.scripts?.['package:extension'], 'node scripts/package-extension-release.js');
+    assert.match(releaseEn, /pnpm package:extension/);
+    assert.match(releaseEn, /latest-extension\.json/);
+    assert.match(releaseEn, /official website/i);
+    assert.match(releaseZh, /pnpm package:extension/);
+    assert.match(releaseZh, /latest-extension\.json/);
+    assert.match(releaseZh, /官网/);
+});

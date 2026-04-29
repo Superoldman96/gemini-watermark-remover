@@ -12,6 +12,7 @@
 
 <p align="center">
   <a href="https://geminiwatermarkremover.io/"><img src="https://img.shields.io/badge/🛠️_在线工具-geminiwatermarkremover.io-blue?style=for-the-badge" alt="在线工具"></a>&nbsp;
+  <a href="https://github.com/GargantuaX/gemini-watermark-remover/releases/latest"><img src="https://img.shields.io/badge/🧩_Chrome插件-下载-blueviolet?style=for-the-badge" alt="Chrome 插件"></a>&nbsp;
   <a href="https://geminiwatermarkremover.io/userscript/gemini-watermark-remover.user.js"><img src="https://img.shields.io/badge/🐒_油猴脚本-安装-green?style=for-the-badge" alt="油猴脚本"></a>&nbsp;
   <a href="https://pilio.ai/image-watermark-remover"><img src="https://img.shields.io/badge/🧹_通用去水印-pilio.ai-gray?style=for-the-badge" alt="通用去水印"></a>
 </p>
@@ -25,7 +26,7 @@
 - ✅ **100% 本地处理** - 所有图片处理都在你的浏览器或本地环境中完成，不会上传到任何服务器
 - ✅ **数学精确** - 基于反向 Alpha 混合算法，而非 AI 修复模型
 - ✅ **自动检测** - 基于 Gemini 已知输出尺寸目录和局部锚点搜索，自动识别水印大小与位置
-- ✅ **灵活使用** - 在线工具快速上手、油猴脚本无缝集成 Gemini 页面、CLI 和 Skill 支持脚本化与自动化
+- ✅ **灵活使用** - 在线工具快速上手、Chrome 插件或油猴脚本无缝集成 Gemini 页面、CLI 和 Skill 支持脚本化与自动化
 - ✅ **跨平台** - 支持现代浏览器（Chrome、Firefox、Safari、Edge）和 Node.js 环境
 
 ## Gemini 去水印效果示例
@@ -74,6 +75,22 @@
 2. 拖拽或点击选择带水印的 Gemini 图片
 3. 图片会自动开始处理，移除水印
 4. 下载处理后的图片
+
+### Chrome 插件
+
+适合不想安装油猴脚本、但希望在 Gemini 页面里实时自动处理预览图、复制和下载动作的用户。
+
+1. 打开 [GitHub Releases](https://github.com/GargantuaX/gemini-watermark-remover/releases/latest)，下载 `gemini-watermark-remover-extension-v*.zip`
+2. 解压 zip 文件，并保留解压后的文件夹
+3. 在 Chrome 地址栏打开 `chrome://extensions`
+4. 开启“开发者模式”
+5. 点击“加载已解压的扩展程序”
+6. 选择刚才解压出的插件文件夹
+7. 打开 Gemini 页面，插件会自动处理可支持的 Gemini 图片
+
+插件弹窗里提供了“在 Gemini 中自动去除”开关。如果遇到 Gemini 页面卡顿、异常或需要排查问题，可以先关闭开关再刷新页面。
+
+更新插件时，下载新版 zip，替换原来的解压目录，然后在 `chrome://extensions` 中点击该插件的“重新加载”。如果无法稳定访问 GitHub，可从官网提供的下载入口获取同版本插件包。
 
 ### 油猴脚本
 

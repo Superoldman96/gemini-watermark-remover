@@ -57,11 +57,11 @@ test('production build should emit a MV3 extension that packages the shared user
   const popupHtml = await readText('dist/extension/popup.html');
   assert.match(popupHtml, /https:\/\/geminiwatermarkremover\.io\//);
   assert.match(popupHtml, /https:\/\/pilio\.ai\/zh\/image-watermark-remover/);
-  assert.match(popupHtml, /在线去除 Gemini 水印/);
+  assert.match(popupHtml, /在线批量去除 Gemini 水印/);
   assert.match(popupHtml, /去除任意图片水印/);
   assert.match(popupHtml, /https:\/\/github\.com\/GargantuaX\/gemini-watermark-remover\/issues/);
   assert.match(popupHtml, /assets\/github\.svg/);
-  assert.match(popupHtml, /assets\/icon-48\.png/);
+  assert.match(popupHtml, /assets\/logo-shape\.svg/);
   assert.match(popupHtml, /enable-toggle/);
   assert.match(popupHtml, /popup\.js/);
 

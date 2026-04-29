@@ -68,14 +68,21 @@ test('build and ci config should not reference removed legacy Chrome extension w
   assert.doesNotMatch(workflow, /run:\s+pnpm test:extension-smoke/i);
 });
 
-test('README files should not document removed Chrome extension workflows', () => {
+test('README files should document the active Chrome extension release flow without legacy debug workflows', () => {
   const readmeZh = readRepoText('README_zh.md');
   const readmeEn = readRepoText('README.md');
 
+  assert.match(readmeZh, /### Chrome 插件/);
+  assert.match(readmeZh, /GitHub Releases/);
+  assert.match(readmeZh, /加载已解压的扩展程序/);
+  assert.match(readmeZh, /gemini-watermark-remover-extension-v\*\.zip/);
+  assert.match(readmeEn, /### Chrome Extension/);
+  assert.match(readmeEn, /GitHub Releases/);
+  assert.match(readmeEn, /Load unpacked/);
+  assert.match(readmeEn, /gemini-watermark-remover-extension-v\*\.zip/);
+
   for (const pattern of [
-    /Chrome 插件/i,
     /dist\/extension/,
-    /加载已解压缩的扩展程序|Load unpacked/i,
     /pnpm debug:auto/,
     /pnpm debug:manual/
   ]) {
@@ -83,9 +90,7 @@ test('README files should not document removed Chrome extension workflows', () =
   }
 
   for (const pattern of [
-    /Chrome Extension/i,
     /dist\/extension/,
-    /Load unpacked/i,
     /pnpm debug:auto/,
     /pnpm debug:manual/
   ]) {

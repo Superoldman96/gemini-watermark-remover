@@ -7,6 +7,7 @@ This repository currently ships three release surfaces:
 - website build in `dist/`
 - userscript bundle in `dist/userscript/gemini-watermark-remover.user.js`
 - package/sdk source and metadata from `package.json`, `src/core/`, and `src/sdk/`
+- Chrome extension package in `dist/releases/gemini-watermark-remover-extension-v<version>.zip`
 
 ## Preflight
 
@@ -16,6 +17,7 @@ Run these locally from the repo root:
 pnpm install
 pnpm test
 pnpm build
+pnpm package:extension
 ```
 
 Expected result:
@@ -25,6 +27,7 @@ Expected result:
 - `dist/userscript/gemini-watermark-remover.user.js` is regenerated
 - package/sdk entrypoints in `package.json` still match the published source layout
 - generated userscript metadata uses the current `package.json` version
+- Chrome extension release zip, sha256 file, and `latest-extension.json` are regenerated in `dist/releases/`
 
 ## Release Metadata
 
@@ -39,6 +42,7 @@ Expected result:
 - verify Gemini page preview replacement works
 - verify native Gemini copy/download still returns processed output
 - verify preview processing failure leaves the original page image visible
+- load the unpacked Chrome extension from `dist/extension` and verify the popup toggle, Gemini online link, general watermark link, and GitHub feedback link
 - if you publish the sdk surface, run a final package smoke check before uploading
 
 ## Publish
@@ -46,6 +50,8 @@ Expected result:
 - commit release changes
 - create a git tag matching the package version, for example `v1.0.1`
 - publish or upload the built userscript from `dist/userscript/gemini-watermark-remover.user.js`
+- upload `dist/releases/gemini-watermark-remover-extension-v<version>.zip`, its `.sha256.txt` file, and `latest-extension.json` to GitHub Release
+- mirror the same Chrome extension release files to the official website download directory for users who cannot access GitHub or Chrome Web Store reliably
 - deploy website assets from `dist/` if the online entry changed
 - publish the sdk package only if this release includes package-facing changes
 
@@ -53,4 +59,5 @@ Expected result:
 
 - confirm the installed userscript reports the expected version
 - confirm the hosted install link serves the latest userscript bundle
+- confirm the official website serves the latest Chrome extension zip and matching checksum
 - keep any ad hoc verification notes in the release PR or tag notes, not in source docs

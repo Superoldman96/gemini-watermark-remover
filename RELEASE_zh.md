@@ -7,6 +7,7 @@
 - 网站构建产物：`dist/`
 - 油猴脚本产物：`dist/userscript/gemini-watermark-remover.user.js`
 - `package.json`、`src/core/`、`src/sdk/` 对应的 package/sdk 源码与元数据
+- Chrome 插件安装包：`dist/releases/gemini-watermark-remover-extension-v<version>.zip`
 
 ## 发布前检查
 
@@ -16,6 +17,7 @@
 pnpm install
 pnpm test
 pnpm build
+pnpm package:extension
 ```
 
 预期结果：
@@ -25,6 +27,7 @@ pnpm build
 - `dist/userscript/gemini-watermark-remover.user.js` 已重新生成
 - `package.json` 中的 package/sdk 入口仍与实际发布源码布局一致
 - 生成后的 userscript 元数据使用当前 `package.json` 版本号
+- `dist/releases/` 下已重新生成 Chrome 插件 zip、sha256 文件和 `latest-extension.json`
 
 ## 版本元数据
 
@@ -39,6 +42,7 @@ pnpm build
 - 验证 Gemini 页面预览图替换链路正常
 - 验证 Gemini 原生复制/下载动作仍返回去水印后的结果
 - 验证预览图处理失败时页面原图仍保持可见
+- 从 `dist/extension` 加载未打包 Chrome 插件，验证弹窗开关、Gemini 在线工具链接、通用去水印链接和 GitHub 反馈链接
 - 如果本次要发布 sdk/package，发包前再做一次 package smoke 检查
 
 ## 发布
@@ -46,6 +50,8 @@ pnpm build
 - 提交版本相关改动
 - 创建与版本号一致的 git tag，例如 `v1.0.1`
 - 发布或上传 `dist/userscript/gemini-watermark-remover.user.js`
+- 上传 `dist/releases/gemini-watermark-remover-extension-v<version>.zip`、对应 `.sha256.txt` 和 `latest-extension.json` 到 GitHub Release
+- 将同一组 Chrome 插件安装包文件同步到官网下载目录，服务无法稳定访问 GitHub 或 Chrome Web Store 的用户
 - 如果在线站点入口有变更，同步部署 `dist/` 下的网站产物
 - 只有本次涉及 package 对外接口时，才同步发布 sdk/package
 
@@ -53,4 +59,5 @@ pnpm build
 
 - 确认浏览器里已安装的 userscript 显示正确版本号
 - 确认线上安装链接返回的是最新 userscript 产物
+- 确认官网提供的是最新 Chrome 插件 zip，且校验值一致
 - 临时性的验证记录放到 release note 或 PR 里，不继续堆在仓库文档中

@@ -204,10 +204,11 @@ test('installed skill runtime should fall back to pnpm dlx when repo-local bin i
   assert.match(`${result.stdout}\n${result.stderr}`, /Usage:\s*gwr\s+remove/i);
 });
 
-test('README (zh) should prioritize section headings for online tool, userscript, Skill, and CLI before SDK', async () => {
+test('README (zh) should prioritize section headings for online tool, Chrome extension, userscript, Skill, and CLI before SDK', async () => {
   const readme = await readFile(new URL('../../README_zh.md', import.meta.url), 'utf8');
   const headings = extractMarkdownHeadingLines(readme);
   const onlineIndex = headingOrderIndex(headings, '### 在线 Gemini 去水印工具（推荐）');
+  const extensionIndex = headingOrderIndex(headings, '### Chrome 插件');
   const userscriptIndex = headingOrderIndex(headings, '### 油猴脚本');
   const skillIndex = headingOrderIndex(headings, '### Skill');
   const cliIndex = headingOrderIndex(headings, '### CLI');
@@ -216,7 +217,8 @@ test('README (zh) should prioritize section headings for online tool, userscript
   const sdkIndex = headingOrderIndex(headings, '## SDK 用法（高级 / 内部）');
 
   assert.ok(onlineIndex >= 0);
-  assert.ok(userscriptIndex > onlineIndex);
+  assert.ok(extensionIndex > onlineIndex);
+  assert.ok(userscriptIndex > extensionIndex);
   assert.ok(skillIndex > userscriptIndex);
   assert.ok(cliIndex > skillIndex);
   assert.ok(developerPreviewIndex > cliIndex);
@@ -224,10 +226,11 @@ test('README (zh) should prioritize section headings for online tool, userscript
   assert.ok(sdkIndex > cliIndex);
 });
 
-test('README (English) should prioritize online tool, userscript, Skill, and CLI before SDK', async () => {
+test('README (English) should prioritize online tool, Chrome extension, userscript, Skill, and CLI before SDK', async () => {
   const readme = await readFile(new URL('../../README.md', import.meta.url), 'utf8');
   const headings = extractMarkdownHeadingLines(readme);
   const onlineIndex = headingOrderIndex(headings, '### Online Gemini Watermark Remover (Recommended)');
+  const extensionIndex = headingOrderIndex(headings, '### Chrome Extension');
   const userscriptIndex = headingOrderIndex(headings, '### Userscript');
   const skillIndex = headingOrderIndex(headings, '### Skill');
   const cliIndex = headingOrderIndex(headings, '### CLI');
@@ -236,7 +239,8 @@ test('README (English) should prioritize online tool, userscript, Skill, and CLI
   const sdkIndex = headingOrderIndex(headings, '## SDK Usage (Advanced / Internal)');
 
   assert.ok(onlineIndex >= 0);
-  assert.ok(userscriptIndex > onlineIndex);
+  assert.ok(extensionIndex > onlineIndex);
+  assert.ok(userscriptIndex > extensionIndex);
   assert.ok(skillIndex > userscriptIndex);
   assert.ok(cliIndex > skillIndex);
   assert.ok(developerPreviewIndex > cliIndex);
