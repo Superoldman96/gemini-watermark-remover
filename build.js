@@ -39,6 +39,8 @@ const userscriptBanner = `// ==UserScript==
 // @icon         https://www.google.com/s2/favicons?domain=gemini.google.com
 // @author       GargantuaX
 // @license      MIT
+// @downloadURL  https://geminiwatermarkremover.io/userscript/gemini-watermark-remover.user.js
+// @updateURL    https://geminiwatermarkremover.io/userscript/gemini-watermark-remover.user.js
 // @match        https://gemini.google.com/app
 // @match        https://gemini.google.com/app/*
 // @match        https://gemini.google.com/*

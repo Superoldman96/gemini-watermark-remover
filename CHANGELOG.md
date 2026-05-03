@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.13 - 2026-05-03
+
+### Userscript
+
+- Added hosted `@downloadURL` and `@updateURL` metadata so userscript managers can auto-update from the official userscript permalink.
+
+### Quality
+
+- Added regression coverage for the hosted userscript auto-update metadata.
+
 ## 1.0.12 - 2026-04-29
 
 ### Chrome Extension
