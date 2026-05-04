@@ -71,14 +71,20 @@ test('build and ci config should not reference removed legacy Chrome extension w
 test('README files should document the active Chrome extension release flow without legacy debug workflows', () => {
   const readmeZh = readRepoText('README_zh.md');
   const readmeEn = readRepoText('README.md');
+  const chromeWebStoreUrl =
+    'https://chromewebstore.google.com/detail/gemini-watermark-remover/cjlmnfcfnofnglkphbcdclbpimdjkmdf';
 
   assert.match(readmeZh, /### Chrome 插件/);
+  assert.match(readmeZh, new RegExp(chromeWebStoreUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(readmeZh, /添加至 Chrome/);
   assert.match(readmeZh, /GitHub Releases/);
-  assert.match(readmeZh, /加载已解压的扩展程序/);
+  assert.match(readmeZh, /备用下载入口/);
   assert.match(readmeZh, /gemini-watermark-remover-extension-v\*\.zip/);
   assert.match(readmeEn, /### Chrome Extension/);
+  assert.match(readmeEn, new RegExp(chromeWebStoreUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(readmeEn, /Add to Chrome/);
   assert.match(readmeEn, /GitHub Releases/);
-  assert.match(readmeEn, /Load unpacked/);
+  assert.match(readmeEn, /manual unpacked installation/);
   assert.match(readmeEn, /gemini-watermark-remover-extension-v\*\.zip/);
 
   for (const pattern of [

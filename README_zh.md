@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="https://geminiwatermarkremover.io/"><img src="https://img.shields.io/badge/🛠️_在线工具-geminiwatermarkremover.io-blue?style=for-the-badge" alt="在线工具"></a>&nbsp;
-  <a href="https://github.com/GargantuaX/gemini-watermark-remover/releases/latest"><img src="https://img.shields.io/badge/🧩_Chrome插件-下载-blueviolet?style=for-the-badge" alt="Chrome 插件"></a>&nbsp;
+  <a href="https://chromewebstore.google.com/detail/gemini-watermark-remover/cjlmnfcfnofnglkphbcdclbpimdjkmdf"><img src="https://img.shields.io/badge/🧩_Chrome插件-安装-blueviolet?style=for-the-badge" alt="Chrome 插件"></a>&nbsp;
   <a href="https://geminiwatermarkremover.io/userscript/gemini-watermark-remover.user.js"><img src="https://img.shields.io/badge/🐒_油猴脚本-安装-green?style=for-the-badge" alt="油猴脚本"></a>&nbsp;
   <a href="https://pilio.ai/image-watermark-remover"><img src="https://img.shields.io/badge/🧹_通用去水印-pilio.ai-gray?style=for-the-badge" alt="通用去水印"></a>
 </p>
@@ -70,17 +70,13 @@
 
 适合不想安装油猴脚本、但希望在 Gemini 页面里实时自动处理预览图、复制和下载动作的用户。
 
-1. 打开 [GitHub Releases](https://github.com/GargantuaX/gemini-watermark-remover/releases/latest)，下载 `gemini-watermark-remover-extension-v*.zip`
-2. 解压 zip 文件，并保留解压后的文件夹
-3. 在 Chrome 地址栏打开 `chrome://extensions`
-4. 开启“开发者模式”
-5. 点击“加载已解压的扩展程序”
-6. 选择刚才解压出的插件文件夹
-7. 打开 Gemini 页面，插件会自动处理可支持的 Gemini 图片
+1. 打开 [Chrome Web Store 上的 Gemini Watermark Remover](https://chromewebstore.google.com/detail/gemini-watermark-remover/cjlmnfcfnofnglkphbcdclbpimdjkmdf)
+2. 点击“添加至 Chrome”，并确认安装
+3. 打开 Gemini 页面，插件会自动处理可支持的 Gemini 图片
 
 插件弹窗里提供了“在 Gemini 中自动去除”开关。如果遇到 Gemini 页面卡顿、异常或需要排查问题，可以先关闭开关再刷新页面。
 
-更新插件时，下载新版 zip，替换原来的解压目录，然后在 `chrome://extensions` 中点击该插件的“重新加载”。如果无法稳定访问 GitHub，可从官网提供的下载入口获取同版本插件包。
+通过 Chrome Web Store 安装后，插件会自动更新。如果你的网络无法稳定访问 Chrome Web Store，仍可从 [GitHub Releases](https://github.com/GargantuaX/gemini-watermark-remover/releases/latest) 或官网备用下载入口获取同版本已校验 zip（`gemini-watermark-remover-extension-v*.zip`），并按手动加载未打包插件的方式安装。
 
 ### 油猴脚本
 

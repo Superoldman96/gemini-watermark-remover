@@ -12,7 +12,7 @@ An open-source tool to **remove Gemini watermarks** from AI-generated images wit
 
 <p align="center">
   <a href="https://geminiwatermarkremover.io/"><img src="https://img.shields.io/badge/🛠️_Online_Tool-geminiwatermarkremover.io-blue?style=for-the-badge" alt="Online Tool"></a>&nbsp;
-  <a href="https://github.com/GargantuaX/gemini-watermark-remover/releases/latest"><img src="https://img.shields.io/badge/🧩_Chrome_Extension-Download-blueviolet?style=for-the-badge" alt="Chrome Extension"></a>&nbsp;
+  <a href="https://chromewebstore.google.com/detail/gemini-watermark-remover/cjlmnfcfnofnglkphbcdclbpimdjkmdf"><img src="https://img.shields.io/badge/🧩_Chrome_Extension-Install-blueviolet?style=for-the-badge" alt="Chrome Extension"></a>&nbsp;
   <a href="https://geminiwatermarkremover.io/userscript/gemini-watermark-remover.user.js"><img src="https://img.shields.io/badge/🐒_Userscript-Install-green?style=for-the-badge" alt="Userscript"></a>&nbsp;
   <a href="https://pilio.ai/image-watermark-remover"><img src="https://img.shields.io/badge/🧹_General_Remover-pilio.ai-gray?style=for-the-badge" alt="General Watermark Remover"></a>
 </p>
@@ -70,17 +70,13 @@ For all users — the fastest and easiest way to remove Gemini watermarks from i
 
 Use this if you do not want a userscript manager but still want automatic Gemini page integration for previews, copy, and download actions.
 
-1. Open [GitHub Releases](https://github.com/GargantuaX/gemini-watermark-remover/releases/latest) and download `gemini-watermark-remover-extension-v*.zip`.
-2. Extract the zip file and keep the extracted folder.
-3. Open `chrome://extensions` in Chrome.
-4. Enable Developer mode.
-5. Click Load unpacked.
-6. Select the extracted extension folder.
-7. Open Gemini. The extension will automatically process supported Gemini images.
+1. Open [Gemini Watermark Remover on the Chrome Web Store](https://chromewebstore.google.com/detail/gemini-watermark-remover/cjlmnfcfnofnglkphbcdclbpimdjkmdf).
+2. Click **Add to Chrome** and confirm the install.
+3. Open Gemini. The extension will automatically process supported Gemini images.
 
 The popup includes an "Enable on Gemini" toggle. If Gemini becomes slow, behaves unexpectedly, or you need to troubleshoot the page, turn the toggle off and refresh Gemini.
 
-To update, download the newer zip, replace the extracted folder, then click Reload for the extension in `chrome://extensions`. If GitHub is not reliably reachable, use the matching package from the official website download entry.
+Chrome Web Store installs update automatically. If the Web Store is not reachable in your network, the matching verified zip (`gemini-watermark-remover-extension-v*.zip`) remains available from [GitHub Releases](https://github.com/GargantuaX/gemini-watermark-remover/releases/latest) and the official website download entry for manual unpacked installation.
 
 ### Userscript
 
