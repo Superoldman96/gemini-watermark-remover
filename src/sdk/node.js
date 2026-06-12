@@ -75,3 +75,10 @@ export async function removeWatermarkFromFile(inputPath, options = {}) {
         outputPath
     };
 }
+
+export {
+    inferVideoMimeTypeFromPath,
+    isVideoMimeType,
+    removeVideoWatermarkFromBuffer,
+    removeVideoWatermarkFromFile
+} from './video.js';

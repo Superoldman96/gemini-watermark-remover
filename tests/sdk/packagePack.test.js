@@ -19,6 +19,8 @@ test('pnpm pack should publish sdk entrypoints without shipping test fixtures', 
         assert.ok(listing.includes('package/src/sdk/browser.js'));
         assert.ok(listing.includes('package/src/sdk/image-data.js'));
         assert.ok(listing.includes('package/src/sdk/node.js'));
+        assert.ok(listing.includes('package/src/sdk/video.js'));
+        assert.ok(listing.includes('package/src/sdk/video.d.ts'));
         assert.ok(listing.includes('package/src/runtime/browser.js'));
         assert.ok(listing.includes('package/src/runtime/browser.d.ts'));
         assert.ok(listing.includes('package/src/runtime/userscript.js'));

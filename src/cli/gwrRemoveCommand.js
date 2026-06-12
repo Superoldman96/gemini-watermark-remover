@@ -1,10 +1,16 @@
 import path from 'node:path';
 import { mkdir, readdir, stat } from 'node:fs/promises';
 
-import { inferMimeTypeFromPath, removeWatermarkFromFile } from '../sdk/node.js';
+import {
+  inferMimeTypeFromPath,
+  inferVideoMimeTypeFromPath,
+  isVideoMimeType,
+  removeVideoWatermarkFromFile,
+  removeWatermarkFromFile
+} from '../sdk/node.js';
 
 const REMOVE_USAGE =
-  'Usage: gwr remove <input> [--output <file> | --out-dir <dir>] [--overwrite] [--json]';
+  'Usage: gwr remove <input> [--output <file> | --out-dir <dir>] [--overwrite] [--json] [--video-page <url-or-file>]';
 
 export async function runRemoveCommand(argv, io) {
   if (argv.length === 0 || argv[0] === '--help' || argv[0] === '-h') {
@@ -18,15 +24,7 @@ export async function runRemoveCommand(argv, io) {
     return 2;
   }
 
-  const codec = await resolveCodecOptions(options).catch((error) => {
-    io.stderr.write(`${error.message}\n`);
-    return null;
-  });
-  if (!codec) {
-    return 2;
-  }
-
-  const commandOptions = { ...options, codec };
+  const commandOptions = { ...options, imageCodecPromise: null };
   const inputStats = await stat(commandOptions.input).catch(() => null);
   if (!inputStats) {
     io.stderr.write(`Input not found: ${commandOptions.input}\n`);
@@ -64,7 +62,11 @@ function parseRemoveArgs(argv) {
     overwrite: false,
     json: false,
     decoder: null,
-    encoder: null
+    encoder: null,
+    videoPage: null,
+    videoDenoiseBackend: null,
+    videoTimeoutMs: null,
+    allowLowConfidence: false
   };
 
   let parseOptions = true;
@@ -116,6 +118,30 @@ function parseRemoveArgs(argv) {
       continue;
     }
 
+    if (token === '--video-page') {
+      const parsed = parseOptionValue(argv, index, '--video-page');
+      if (!parsed.ok) return parsed;
+      options.videoPage = parsed.value;
+      index = parsed.index;
+      continue;
+    }
+
+    if (token === '--video-denoise-backend') {
+      const parsed = parseOptionValue(argv, index, '--video-denoise-backend');
+      if (!parsed.ok) return parsed;
+      options.videoDenoiseBackend = parsed.value;
+      index = parsed.index;
+      continue;
+    }
+
+    if (token === '--video-timeout-ms') {
+      const parsed = parseOptionValue(argv, index, '--video-timeout-ms');
+      if (!parsed.ok) return parsed;
+      options.videoTimeoutMs = Number(parsed.value);
+      index = parsed.index;
+      continue;
+    }
+
     if (token === '--overwrite') {
       options.overwrite = true;
       continue;
@@ -123,6 +149,11 @@ function parseRemoveArgs(argv) {
 
     if (token === '--json') {
       options.json = true;
+      continue;
+    }
+
+    if (token === '--allow-low-confidence') {
+      options.allowLowConfidence = true;
       continue;
     }
 
@@ -143,6 +174,10 @@ function parseRemoveArgs(argv) {
 
   if ((options.decoder && !options.encoder) || (!options.decoder && options.encoder)) {
     return { ok: false, error: '--decoder and --encoder must be used together.' };
+  }
+
+  if (options.videoTimeoutMs !== null && (!Number.isFinite(options.videoTimeoutMs) || options.videoTimeoutMs <= 0)) {
+    return { ok: false, error: '--video-timeout-ms must be a positive number.' };
   }
 
   return options;
@@ -301,17 +336,50 @@ async function processOneFile(inputPath, outputPath, options) {
   }
 
   await mkdir(path.dirname(outputPath), { recursive: true });
+  if (isVideoPath(inputPath) || isVideoPath(outputPath)) {
+    const result = await removeVideoWatermarkFromFile(inputPath, {
+      outputPath,
+      mimeType: inferVideoMimeTypeFromPath(outputPath || inputPath),
+      pagePath: options.videoPage || undefined,
+      denoiseBackend: options.videoDenoiseBackend || undefined,
+      timeoutMs: Number.isFinite(options.videoTimeoutMs) && options.videoTimeoutMs > 0
+        ? options.videoTimeoutMs
+        : undefined,
+      allowLowConfidence: options.allowLowConfidence
+    });
+
+    return {
+      input: inputPath,
+      output: outputPath,
+      kind: 'video',
+      meta: result.meta
+    };
+  }
+
+  const codec = await getImageCodec(options);
   const mimeType = inferMimeTypeFromPath(outputPath);
   const result = await removeWatermarkFromFile(inputPath, {
     outputPath,
     mimeType,
-    decodeImageData: options.codec.decodeImageData,
-    encodeImageData: options.codec.encodeImageData
+    decodeImageData: codec.decodeImageData,
+    encodeImageData: codec.encodeImageData
   });
 
   return {
     input: inputPath,
     output: outputPath,
+    kind: 'image',
     meta: result.meta
   };
+}
+
+function isVideoPath(filePath) {
+  return isVideoMimeType(inferVideoMimeTypeFromPath(filePath));
+}
+
+async function getImageCodec(options) {
+  if (!options.imageCodecPromise) {
+    options.imageCodecPromise = resolveCodecOptions(options);
+  }
+  return options.imageCodecPromise;
 }

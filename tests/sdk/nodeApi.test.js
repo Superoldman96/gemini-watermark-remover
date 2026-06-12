@@ -77,3 +77,57 @@ test('removeWatermarkFromFile should read input and optionally write output', as
     assert.equal(result.outputPath, outputPath);
     assert.ok(result.meta.applied, `skipReason=${result.meta.skipReason}`);
 });
+
+test('removeVideoWatermarkFromFile should support an injected video processor', async () => {
+    const mod = await import('@pilio/gemini-watermark-remover/node');
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'wm-node-video-sdk-'));
+    const inputPath = path.join(tempDir, 'input.mp4');
+    const outputPath = path.join(tempDir, 'output.mp4');
+    const outputBuffer = Buffer.from('processed-video');
+    await writeFile(inputPath, Buffer.from('source-video'));
+
+    const result = await mod.removeVideoWatermarkFromFile(inputPath, {
+        outputPath,
+        denoiseBackend: 'allenk-fdncnn-browser-spike',
+        processVideoFile(receivedInputPath, context) {
+            assert.equal(receivedInputPath, inputPath);
+            assert.equal(context.outputPath, outputPath);
+            assert.equal(context.mimeType, 'video/mp4');
+            assert.equal(context.denoiseBackend, 'allenk-fdncnn-browser-spike');
+            return {
+                buffer: outputBuffer,
+                meta: {
+                    status: 'ok',
+                    aiDenoiseFrames: 1,
+                    aiReuseFrames: 2
+                }
+            };
+        }
+    });
+
+    const saved = await readFile(outputPath);
+    assert.equal(Buffer.compare(saved, outputBuffer), 0);
+    assert.equal(Buffer.compare(result.buffer, outputBuffer), 0);
+    assert.equal(result.outputPath, outputPath);
+    assert.equal(result.mimeType, 'video/mp4');
+    assert.equal(result.meta.status, 'ok');
+});
+
+test('removeVideoWatermarkFromBuffer should support an injected video buffer processor', async () => {
+    const mod = await import('@pilio/gemini-watermark-remover/video');
+    const result = await mod.removeVideoWatermarkFromBuffer(Buffer.from('source-video'), {
+        mimeType: 'video/mp4',
+        processVideoBuffer(inputBuffer, context) {
+            assert.ok(Buffer.isBuffer(inputBuffer));
+            assert.equal(context.mimeType, 'video/mp4');
+            return {
+                buffer: Buffer.from('processed-video'),
+                meta: { status: 'buffer-ok' }
+            };
+        }
+    });
+
+    assert.equal(result.buffer.toString('utf8'), 'processed-video');
+    assert.equal(result.mimeType, 'video/mp4');
+    assert.equal(result.meta.status, 'buffer-ok');
+});

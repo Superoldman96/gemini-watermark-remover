@@ -665,6 +665,9 @@ function applyAutomaticPreset(detection = state.detection, metadata = state.meta
 }
 
 function applyDebugControlOverrides() {
+    if (typeof window.__gwrVideoOverrideAllowLowConfidence === 'boolean') {
+        els.allowLowConfidence.checked = window.__gwrVideoOverrideAllowLowConfidence;
+    }
     if (Number.isFinite(window.__gwrVideoOverrideEdgeDenoiseStrength)) {
         setNumberControl(
             els.edgeDenoiseStrength,

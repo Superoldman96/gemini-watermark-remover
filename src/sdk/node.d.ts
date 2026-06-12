@@ -1,4 +1,11 @@
 import type { ImageDataRemovalResult, RemoveOptions, WatermarkMeta } from './index.js';
+export type {
+    VideoBufferRemovalOptions,
+    VideoBufferRemovalResult,
+    VideoFileRemovalOptions,
+    VideoFileRemovalResult,
+    VideoRemovalMeta
+} from './video.js';
 
 export interface NodeCodecContext {
     mimeType: string;
@@ -40,3 +47,9 @@ export function removeWatermarkFromFile(
     inputPath: string,
     options: NodeFileRemovalOptions
 ): Promise<NodeFileRemovalResult>;
+export {
+    inferVideoMimeTypeFromPath,
+    isVideoMimeType,
+    removeVideoWatermarkFromBuffer,
+    removeVideoWatermarkFromFile
+} from './video.js';

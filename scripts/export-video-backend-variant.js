@@ -264,6 +264,9 @@ export async function exportVideoBackendVariant({
             await setNumericInputValue(page, '#videoBitrateMbps', videoBitrate / 1000 / 1000);
         }
         if (allowLowConfidence) {
+            await page.evaluate(() => {
+                window.__gwrVideoOverrideAllowLowConfidence = true;
+            });
             await setCheckboxValue(page, '#allowLowConfidence', true);
         }
         await page.locator('#processBtn').click();

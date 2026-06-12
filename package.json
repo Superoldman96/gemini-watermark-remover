@@ -45,6 +45,10 @@
       "types": "./src/sdk/node.d.ts",
       "import": "./src/sdk/node.js"
     },
+    "./video": {
+      "types": "./src/sdk/video.d.ts",
+      "import": "./src/sdk/video.js"
+    },
     "./runtime-browser": {
       "types": "./src/runtime/browser.d.ts",
       "import": "./src/runtime/browser.js"

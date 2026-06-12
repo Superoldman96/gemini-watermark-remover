@@ -26,6 +26,7 @@ import {
     removeWatermarkFromImageDataSync
 } from '@pilio/gemini-watermark-remover';
 import { removeWatermarkFromBuffer, inferMimeTypeFromPath } from '@pilio/gemini-watermark-remover/node';
+import { removeVideoWatermarkFromBuffer, inferVideoMimeTypeFromPath } from '@pilio/gemini-watermark-remover/video';
 import { createBrowserRuntimeProcessor } from '@pilio/gemini-watermark-remover/runtime-browser';
 import { createUserscriptRuntimeProcessor } from '@pilio/gemini-watermark-remover/runtime-userscript';
 
@@ -73,6 +74,16 @@ const bufferResult = await removeWatermarkFromBuffer(
     }
 );
 
+const videoResult = await removeVideoWatermarkFromBuffer(Buffer.from('video'), {
+    mimeType: 'video/mp4',
+    processVideoBuffer() {
+        return {
+            buffer: Buffer.from('processed-video'),
+            meta: { status: 'ok' }
+        };
+    }
+});
+
 assert.equal(typeof engine.getAlphaMap, 'function');
 assert.equal(typeof browserRuntime.processWatermarkBlob, 'function');
 assert.equal(typeof userscriptRuntime.processWatermarkBlob, 'function');
@@ -80,7 +91,9 @@ assert.equal(typeof userscriptRuntime.initialize, 'function');
 assert.equal(syncResult.imageData.width, 320);
 assert.equal(typeof syncResult.meta.applied, 'boolean');
 assert.equal(inferMimeTypeFromPath('example.png'), 'image/png');
+assert.equal(inferVideoMimeTypeFromPath('example.mp4'), 'video/mp4');
 assert.ok(Buffer.isBuffer(bufferResult.buffer));
+assert.ok(Buffer.isBuffer(videoResult.buffer));
 assert.equal(typeof bufferResult.meta.applied, 'boolean');
 
 let privateImportCode = 'no-error';
@@ -95,6 +108,7 @@ console.log(JSON.stringify({
     syncWidth: syncResult.imageData.width,
     syncMetaAppliedType: typeof syncResult.meta.applied,
     bufferLength: bufferResult.buffer.length,
+    videoBufferLength: videoResult.buffer.length,
     bufferMetaAppliedType: typeof bufferResult.meta.applied,
     privateImportCode
 }));
@@ -107,5 +121,6 @@ console.log(JSON.stringify({
     assert.equal(output.syncMetaAppliedType, 'boolean');
     assert.equal(output.bufferMetaAppliedType, 'boolean');
     assert.ok(output.bufferLength > 0);
+    assert.ok(output.videoBufferLength > 0);
     assert.equal(output.privateImportCode, 'ERR_PACKAGE_PATH_NOT_EXPORTED');
 });
