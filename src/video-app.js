@@ -17,6 +17,7 @@ import {
     getAutomaticVideoPresetConfig,
     getRelocatedReviewPresetConfig
 } from './video/videoPresetPolicy.js';
+import { resolveAllenkFdncnnRuntimeProfile } from './video/videoDenoiseRuntimePolicy.js';
 import {
     consumeDebugFileHandoff,
     getDebugFileKind,
@@ -26,7 +27,6 @@ import {
 import { createAllenkFdncnnOnnxRuntime } from './core/allenkFdncnnOnnxRuntime.js';
 
 const $ = (id) => document.getElementById(id);
-const ALLENK_FDNCNN_MODEL_URL = './models/allenk-fdncnn/model_core_fp32_200.onnx';
 const ALLENK_FDNCNN_WASM_PATHS = Object.freeze({
     mjs: './onnxruntime/ort-wasm-simd-threaded.js',
     wasm: './onnxruntime/ort-wasm-simd-threaded.wasm'
@@ -35,8 +35,6 @@ const ALLENK_FDNCNN_WEBGPU_WASM_PATHS = Object.freeze({
     mjs: './onnxruntime/ort-wasm-simd-threaded.asyncify.mjs',
     wasm: './onnxruntime/ort-wasm-simd-threaded.asyncify.wasm'
 });
-const ALLENK_FDNCNN_INPUT_SHAPE = Object.freeze([1, 4, 200, 200]);
-const ALLENK_FDNCNN_OUTPUT_SHAPE = Object.freeze([1, 3, 200, 200]);
 
 const state = {
     file: null,
@@ -49,7 +47,7 @@ const state = {
     syncingPlayback: false
 };
 
-let allenkFdncnnRuntimePromise = null;
+const allenkFdncnnRuntimePromises = new Map();
 
 const els = {
     dropzone: $('dropzone'),
@@ -127,10 +125,11 @@ async function preflightWebGpuRuntimeAssets(paths) {
     }
 }
 
-async function loadAllenkFdncnnRuntime() {
-    if (!allenkFdncnnRuntimePromise) {
-        allenkFdncnnRuntimePromise = (async () => {
-            const response = await fetch(ALLENK_FDNCNN_MODEL_URL);
+async function loadAllenkFdncnnRuntime(runtimeProfile = resolveAllenkFdncnnRuntimeProfile()) {
+    const profile = runtimeProfile || resolveAllenkFdncnnRuntimeProfile();
+    if (!allenkFdncnnRuntimePromises.has(profile.id)) {
+        const runtimePromise = (async () => {
+            const response = await fetch(profile.modelUrl);
             if (!response.ok) {
                 throw new Error(`无法加载 AI 模型：${response.status}`);
             }
@@ -151,8 +150,8 @@ async function loadAllenkFdncnnRuntime() {
                         wasmPaths: ALLENK_FDNCNN_WEBGPU_WASM_PATHS,
                         inputName: 'fdncnn_input',
                         outputName: 'fdncnn_output',
-                        inputShape: ALLENK_FDNCNN_INPUT_SHAPE,
-                        outputShape: ALLENK_FDNCNN_OUTPUT_SHAPE
+                        inputShape: profile.inputShape,
+                        outputShape: profile.outputShape
                     });
                 } catch (error) {
                     console.warn('WebGPU AI runtime unavailable, falling back to WASM:', error);
@@ -164,20 +163,26 @@ async function loadAllenkFdncnnRuntime() {
                 wasmPaths: ALLENK_FDNCNN_WASM_PATHS,
                 inputName: 'fdncnn_input',
                 outputName: 'fdncnn_output',
-                inputShape: ALLENK_FDNCNN_INPUT_SHAPE,
-                outputShape: ALLENK_FDNCNN_OUTPUT_SHAPE
+                inputShape: profile.inputShape,
+                outputShape: profile.outputShape
             });
         })();
+        allenkFdncnnRuntimePromises.set(profile.id, runtimePromise);
+        runtimePromise.catch(() => {
+            if (allenkFdncnnRuntimePromises.get(profile.id) === runtimePromise) {
+                allenkFdncnnRuntimePromises.delete(profile.id);
+            }
+        });
     }
-    return allenkFdncnnRuntimePromise;
+    return allenkFdncnnRuntimePromises.get(profile.id);
 }
 
-async function resolveExportDenoiseRuntime(denoiseBackend) {
+async function resolveExportDenoiseRuntime(denoiseBackend, runtimeProfile = resolveAllenkFdncnnRuntimeProfile()) {
     if (denoiseBackend !== VIDEO_DENOISE_BACKENDS.ALLENK_FDNCNN_BROWSER_SPIKE) {
         return null;
     }
     setStatus('正在加载 AI FDnCNN ONNX 模型，首次加载会稍慢...');
-    return loadAllenkFdncnnRuntime();
+    return loadAllenkFdncnnRuntime(runtimeProfile);
 }
 
 function getAllenkFdncnnTemporalReuseConfig(runtime) {
@@ -520,7 +525,8 @@ async function runExport() {
         }
         applyDebugControlOverrides();
         const denoiseBackend = els.denoiseBackend.value || DEFAULT_DENOISE_BACKEND;
-        const allenkFdncnnRuntime = await resolveExportDenoiseRuntime(denoiseBackend);
+        const allenkFdncnnRuntimeProfile = resolveAllenkFdncnnRuntimeProfile(detectionPayload?.detection?.position);
+        const allenkFdncnnRuntime = await resolveExportDenoiseRuntime(denoiseBackend, allenkFdncnnRuntimeProfile);
         const allenkFdncnnTemporalReuse = getAllenkFdncnnTemporalReuseConfig(allenkFdncnnRuntime);
         const debugAlphaOptions = getDebugAlphaOptions();
         if (jobId !== state.jobId) return;
@@ -541,7 +547,7 @@ async function runExport() {
             allowLowConfidence: els.allowLowConfidence.checked,
             allenkFdncnnRuntime,
             allenkFdncnnSigma: 75,
-            allenkFdncnnPadding: 64,
+            allenkFdncnnPadding: allenkFdncnnRuntimeProfile.padding,
             allenkFdncnnTemporalReuse,
             onProgress: ({ phase, progress, processedFrames, metadata, detection, aiDenoiseFrames, aiReuseFrames }) => {
                 if (jobId !== state.jobId) return;

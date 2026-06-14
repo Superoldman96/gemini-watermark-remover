@@ -6,6 +6,7 @@ import {
     blendAllenkDenoisedRoi,
     buildAllenkFdncnnInput,
     calculateAllenkPaddedRoi,
+    calculateAllenkRuntimeRoi,
     convertAllenkFdncnnOutputToRgba,
     createAllenkGradientMask,
     embedAllenkRoiWeights,
@@ -135,6 +136,54 @@ test('calculateAllenkPaddedRoi should clamp padding and report inner region', ()
             y: 16,
             width: 10,
             height: 10
+        }
+    });
+});
+
+test('calculateAllenkRuntimeRoi should expand smaller padded ROIs to the fixed runtime shape', () => {
+    const roi = calculateAllenkRuntimeRoi({
+        imageWidth: 1280,
+        imageHeight: 720,
+        region: { x: 1160, y: 600, width: 48, height: 48 },
+        padding: 64,
+        targetWidth: 200,
+        targetHeight: 200
+    });
+
+    assert.deepEqual(roi, {
+        x: 1080,
+        y: 520,
+        width: 200,
+        height: 200,
+        inner: {
+            x: 80,
+            y: 80,
+            width: 48,
+            height: 48
+        }
+    });
+});
+
+test('calculateAllenkRuntimeRoi should keep bounded ROIs when the canvas cannot satisfy runtime shape', () => {
+    const roi = calculateAllenkRuntimeRoi({
+        imageWidth: 120,
+        imageHeight: 100,
+        region: { x: 35, y: 30, width: 48, height: 48 },
+        padding: 64,
+        targetWidth: 200,
+        targetHeight: 200
+    });
+
+    assert.deepEqual(roi, {
+        x: 0,
+        y: 0,
+        width: 120,
+        height: 100,
+        inner: {
+            x: 35,
+            y: 30,
+            width: 48,
+            height: 48
         }
     });
 });

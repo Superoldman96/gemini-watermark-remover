@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.23 - 2026-06-14
+
+### Video
+
+- Fixed the browser video ONNX runtime shape mismatch reported in issue #77 by routing small watermarks to the 104px FDnCNN model and standard or unknown watermarks to the 200px model.
+- Added fixed-shape ROI planning and resize fallbacks so every detected video watermark candidate feeds the ONNX runtime with the selected model's expected input size.
+- Moved the runtime padding fallback into the video export layer so direct video exports avoid the same fixed-shape mismatch.
+
+### Quality
+
+- Added regression coverage across the video watermark catalog, including standard, inset, compact, scaled, portrait, 4K, oversized 8K, and undersized-canvas ROI cases.
+- Added release-safety checks to prevent the video app and website runtime bundle from returning to a fixed 200px model or hard-coded 64px padding path.
+
 ## 1.0.22 - 2026-06-14
 
 ### Watermark Removal

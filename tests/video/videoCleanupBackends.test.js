@@ -20,6 +20,8 @@ import {
     buildTextureRepairWeightMap,
     normalizeVideoCleanupOptions
 } from '../../src/video/videoCleanupBackends.js';
+import { resolveAllenkFdncnnRuntimeProfile } from '../../src/video/videoDenoiseRuntimePolicy.js';
+import { resolveVideoWatermarkCandidates } from '../../src/video/videoWatermarkCatalog.js';
 import { getVideoAlphaMap } from '../../src/video/videoWatermarkDetector.js';
 
 function createDiamondAlphaMap(width, height) {
@@ -429,6 +431,227 @@ test('applyVideoResidualCleanup should run injected allenk FDnCNN runtime on the
     assert.equal(result.denoiseRuntime, 'fake-allenk-runtime');
     assert.equal(result.denoiseRuntimeMacs, 1234);
     assert.ok(written.data.some((value, index) => index % 4 === 0 && value > 40));
+});
+
+test('applyVideoResidualCleanup should expand small video ROIs to the fixed allenk runtime shape', () => {
+    let runtimeCalls = 0;
+    let written = null;
+    const runtime = {
+        id: 'fixed-shape-allenk-runtime',
+        inputShape: [1, 4, 200, 200],
+        denoiseImageData({ imageData, sigma }) {
+            runtimeCalls++;
+            assert.equal(sigma, 75);
+            assert.equal(imageData.width, 200);
+            assert.equal(imageData.height, 200);
+            return {
+                runtime: 'fixed-shape-allenk-runtime',
+                imageData: {
+                    width: imageData.width,
+                    height: imageData.height,
+                    data: new Uint8ClampedArray(imageData.data)
+                }
+            };
+        }
+    };
+    const ctx = {
+        canvas: { width: 1280, height: 720 },
+        getImageData(x, y, width, height) {
+            assert.equal(x, 1080);
+            assert.equal(y, 520);
+            assert.equal(width, 200);
+            assert.equal(height, 200);
+            return {
+                width,
+                height,
+                data: new Uint8ClampedArray(width * height * 4).fill(128)
+            };
+        },
+        putImageData(imageData, x, y) {
+            assert.equal(x, 1080);
+            assert.equal(y, 520);
+            written = imageData;
+        }
+    };
+
+    const result = applyVideoResidualCleanup(ctx, {
+        x: 1160,
+        y: 600,
+        width: 48,
+        height: 48
+    }, createDiamondAlphaMap(48, 48), {
+        residualCleanupStrength: 0,
+        denoiseBackend: VIDEO_DENOISE_BACKENDS.ALLENK_FDNCNN_BROWSER_SPIKE,
+        edgeDenoiseStrength: 1,
+        allenkFdncnnRuntime: runtime,
+        allenkFdncnnSigma: 75,
+        allenkFdncnnPadding: 64
+    });
+
+    assert.equal(runtimeCalls, 1);
+    assert.equal(result.denoiseRuntimeStatus, 'applied');
+    assert.equal(written.width, 200);
+    assert.equal(written.height, 200);
+});
+
+test('applyVideoResidualCleanup should resize undersized canvas ROIs for fixed-shape allenk runtimes', () => {
+    let runtimeCalls = 0;
+    let written = null;
+    const runtime = {
+        id: 'resizing-allenk-runtime',
+        inputShape: [1, 4, 200, 200],
+        denoiseImageData({ imageData }) {
+            runtimeCalls++;
+            assert.equal(imageData.width, 200);
+            assert.equal(imageData.height, 200);
+            return {
+                runtime: 'resizing-allenk-runtime',
+                imageData: {
+                    width: imageData.width,
+                    height: imageData.height,
+                    data: new Uint8ClampedArray(imageData.data)
+                }
+            };
+        }
+    };
+    const ctx = {
+        canvas: { width: 120, height: 100 },
+        getImageData(x, y, width, height) {
+            assert.equal(x, 0);
+            assert.equal(y, 0);
+            assert.equal(width, 120);
+            assert.equal(height, 100);
+            const data = new Uint8ClampedArray(width * height * 4);
+            for (let i = 0; i < data.length; i += 4) {
+                data[i] = 90;
+                data[i + 1] = 100;
+                data[i + 2] = 110;
+                data[i + 3] = 255;
+            }
+            return { width, height, data };
+        },
+        putImageData(imageData, x, y) {
+            assert.equal(x, 0);
+            assert.equal(y, 0);
+            written = imageData;
+        }
+    };
+
+    const result = applyVideoResidualCleanup(ctx, {
+        x: 35,
+        y: 30,
+        width: 48,
+        height: 48
+    }, createDiamondAlphaMap(48, 48), {
+        residualCleanupStrength: 0,
+        denoiseBackend: VIDEO_DENOISE_BACKENDS.ALLENK_FDNCNN_BROWSER_SPIKE,
+        edgeDenoiseStrength: 1,
+        allenkFdncnnRuntime: runtime,
+        allenkFdncnnPadding: 64
+    });
+
+    assert.equal(runtimeCalls, 1);
+    assert.equal(result.denoiseRuntimeStatus, 'applied');
+    assert.equal(written.width, 120);
+    assert.equal(written.height, 100);
+});
+
+test('applyVideoResidualCleanup should feed fixed-shape ONNX inputs for every video catalog position type', () => {
+    const cases = [
+        { label: '1080p reference', width: 1920, height: 1080 },
+        { label: '720p explicit', width: 1280, height: 720 },
+        { label: 'scaled down landscape', width: 960, height: 540 },
+        { label: 'scaled portrait', width: 720, height: 1280 },
+        { label: 'scaled up 4k', width: 3840, height: 2160 },
+        { label: 'oversized 8k', width: 7680, height: 4320 },
+        { label: 'tiny square', width: 96, height: 96 },
+        { label: 'tiny landscape', width: 80, height: 64 }
+    ];
+    const covered = new Set();
+
+    for (const testCase of cases) {
+        const candidates = resolveVideoWatermarkCandidates(testCase.width, testCase.height);
+        assert.ok(candidates.length > 0, `${testCase.label} should expose video watermark candidates`);
+
+        for (const candidate of candidates) {
+            const profile = resolveAllenkFdncnnRuntimeProfile(candidate);
+            const expectedWidth = profile.inputShape[3];
+            const expectedHeight = profile.inputShape[2];
+            let runtimeCalls = 0;
+            const writes = [];
+            const runtime = {
+                id: profile.id,
+                inputShape: profile.inputShape,
+                outputShape: profile.outputShape,
+                denoiseImageData({ imageData }) {
+                    runtimeCalls++;
+                    assert.equal(
+                        imageData.width,
+                        expectedWidth,
+                        `${testCase.label} ${candidate.id} runtime width`
+                    );
+                    assert.equal(
+                        imageData.height,
+                        expectedHeight,
+                        `${testCase.label} ${candidate.id} runtime height`
+                    );
+                    return {
+                        runtime: profile.id,
+                        imageData: {
+                            width: imageData.width,
+                            height: imageData.height,
+                            data: new Uint8ClampedArray(imageData.data)
+                        }
+                    };
+                }
+            };
+            const ctx = {
+                canvas: { width: testCase.width, height: testCase.height },
+                getImageData(x, y, width, height) {
+                    assert.ok(x >= 0, `${testCase.label} ${candidate.id} ROI x`);
+                    assert.ok(y >= 0, `${testCase.label} ${candidate.id} ROI y`);
+                    assert.ok(x + width <= testCase.width, `${testCase.label} ${candidate.id} ROI width`);
+                    assert.ok(y + height <= testCase.height, `${testCase.label} ${candidate.id} ROI height`);
+
+                    const data = new Uint8ClampedArray(width * height * 4);
+                    for (let i = 0; i < data.length; i += 4) {
+                        data[i] = 96;
+                        data[i + 1] = 112;
+                        data[i + 2] = 128;
+                        data[i + 3] = 255;
+                    }
+                    return { width, height, data };
+                },
+                putImageData(imageData, x, y) {
+                    assert.ok(x >= 0, `${testCase.label} ${candidate.id} write x`);
+                    assert.ok(y >= 0, `${testCase.label} ${candidate.id} write y`);
+                    assert.ok(x + imageData.width <= testCase.width, `${testCase.label} ${candidate.id} write width`);
+                    assert.ok(y + imageData.height <= testCase.height, `${testCase.label} ${candidate.id} write height`);
+                    writes.push({ x, y, width: imageData.width, height: imageData.height });
+                }
+            };
+
+            const result = applyVideoResidualCleanup(ctx, candidate, getVideoAlphaMap(candidate.size, { candidate }), {
+                residualCleanupStrength: 0,
+                denoiseBackend: VIDEO_DENOISE_BACKENDS.ALLENK_FDNCNN_BROWSER_SPIKE,
+                edgeDenoiseStrength: 1,
+                allenkFdncnnRuntime: runtime,
+                allenkFdncnnPadding: profile.padding
+            });
+
+            assert.equal(runtimeCalls, 1, `${testCase.label} ${candidate.id} runtime calls`);
+            assert.equal(result.denoiseRuntimeStatus, 'applied', `${testCase.label} ${candidate.id} status`);
+            assert.equal(writes.length, 1, `${testCase.label} ${candidate.id} writes`);
+            covered.add(`${candidate.id}:${profile.id}`);
+        }
+    }
+
+    assert.ok(covered.has('veo-1080p-standard:allenk-fdncnn-200'));
+    assert.ok(covered.has('veo-1080p-inset:allenk-fdncnn-200'));
+    assert.ok(covered.has('veo-720p-1-standard:allenk-fdncnn-104'));
+    assert.ok(covered.has('veo-720p-2-compact:allenk-fdncnn-104'));
+    assert.ok(covered.has('veo-1080p-standard:allenk-fdncnn-104'));
+    assert.ok(covered.has('veo-1080p-inset:allenk-fdncnn-104'));
 });
 
 test('applyVideoResidualCleanupAsync should await injected allenk FDnCNN runtime', async () => {

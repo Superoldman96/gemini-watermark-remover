@@ -30,6 +30,7 @@ import {
     applyVideoResidualCleanupAsync,
     normalizeVideoCleanupOptions
 } from './videoCleanupBackends.js';
+import { resolveAllenkFdncnnRuntimeProfile } from './videoDenoiseRuntimePolicy.js';
 
 const DEFAULT_SAMPLE_COUNT = 12;
 const DEFAULT_ALPHA_GAIN = 1;
@@ -815,8 +816,7 @@ export async function removeGeminiVideoWatermark(file, options = {}) {
         denoiseBackend,
         edgeDenoiseStrength,
         textureRepair,
-        textureRepairStrength,
-        allenkFdncnnPadding
+        textureRepairStrength
     } = cleanupOptions;
     const onProgress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
     const videoBitrate = resolveVideoBitrate(options.videoBitrate);
@@ -835,6 +835,7 @@ export async function removeGeminiVideoWatermark(file, options = {}) {
         alphaLocalBodyScale: options.alphaLocalBodyScale
     });
     const { metadata, detection } = detected;
+    const allenkFdncnnPadding = resolveExportAllenkFdncnnPadding(cleanupOptions, detection);
     const detectedSeedGain = detection?.alphaSeed?.seedGain;
     const alphaGain = (
         Number.isFinite(detectedSeedGain) &&
@@ -1032,6 +1033,16 @@ export async function removeGeminiVideoWatermark(file, options = {}) {
     } finally {
         input.dispose();
     }
+}
+
+export function resolveExportAllenkFdncnnPadding(cleanupOptions = {}, detection = null) {
+    if (Number.isFinite(cleanupOptions.allenkFdncnnPadding)) {
+        return cleanupOptions.allenkFdncnnPadding;
+    }
+    if (cleanupOptions.denoiseBackend !== VIDEO_DENOISE_BACKENDS.ALLENK_FDNCNN_BROWSER_SPIKE) {
+        return cleanupOptions.allenkFdncnnPadding;
+    }
+    return resolveAllenkFdncnnRuntimeProfile(detection?.position).padding;
 }
 
 export {

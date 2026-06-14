@@ -188,6 +188,49 @@ function calculateAllenkPaddedRoi({ imageWidth, imageHeight, region, padding = A
     };
 }
 
+function calculateAllenkRuntimeRoi({
+    imageWidth,
+    imageHeight,
+    region,
+    padding = ALLENK_FDNCNN_MODEL.defaultPadding,
+    targetWidth = null,
+    targetHeight = null
+} = {}) {
+    const padded = calculateAllenkPaddedRoi({ imageWidth, imageHeight, region, padding });
+    if (!padded) return null;
+
+    const safeTargetWidth = Number.isInteger(targetWidth) && targetWidth > 0 ? targetWidth : null;
+    const safeTargetHeight = Number.isInteger(targetHeight) && targetHeight > 0 ? targetHeight : null;
+    if (
+        !safeTargetWidth ||
+        !safeTargetHeight ||
+        imageWidth < safeTargetWidth ||
+        imageHeight < safeTargetHeight ||
+        padded.width > safeTargetWidth ||
+        padded.height > safeTargetHeight
+    ) {
+        return padded;
+    }
+
+    const centerX = region.x + region.width / 2;
+    const centerY = region.y + region.height / 2;
+    const x = clamp(Math.round(centerX - safeTargetWidth / 2), 0, imageWidth - safeTargetWidth);
+    const y = clamp(Math.round(centerY - safeTargetHeight / 2), 0, imageHeight - safeTargetHeight);
+
+    return {
+        x,
+        y,
+        width: safeTargetWidth,
+        height: safeTargetHeight,
+        inner: {
+            x: clamp(Math.round(region.x - x), 0, safeTargetWidth),
+            y: clamp(Math.round(region.y - y), 0, safeTargetHeight),
+            width: clamp(Math.round(region.width), 0, safeTargetWidth),
+            height: clamp(Math.round(region.height), 0, safeTargetHeight)
+        }
+    };
+}
+
 function embedAllenkRoiWeights({ roiWeights, roiWidth, roiHeight, paddedRoi, blurSigma = 1 } = {}) {
     if (!roiWeights || !paddedRoi?.inner || roiWidth <= 0 || roiHeight <= 0) {
         return new Float32Array(0);
@@ -319,6 +362,7 @@ export {
     blendAllenkDenoisedRoi,
     buildAllenkFdncnnInput,
     calculateAllenkPaddedRoi,
+    calculateAllenkRuntimeRoi,
     convertAllenkFdncnnOutputToRgba,
     createAllenkGradientMask,
     embedAllenkRoiWeights,

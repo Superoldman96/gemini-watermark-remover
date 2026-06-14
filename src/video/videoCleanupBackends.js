@@ -1,6 +1,6 @@
 import {
     blendAllenkDenoisedRoi,
-    calculateAllenkPaddedRoi,
+    calculateAllenkRuntimeRoi,
     createAllenkGradientMask,
     embedAllenkRoiWeights,
     normalizeAllenkFdncnnOptions
@@ -338,6 +338,88 @@ function mapRoiWeightsToPaddedWeights(roiWeights, position, padded, padX, padY) 
     }
 
     return paddedWeights;
+}
+
+function getAllenkRuntimeInputSize(runtime = null) {
+    const shape = runtime?.inputShape;
+    const height = Number(shape?.[2]);
+    const width = Number(shape?.[3]);
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+        return null;
+    }
+    return { width, height };
+}
+
+function resizeImageDataLike(imageData, targetWidth, targetHeight) {
+    if (
+        !imageData?.data ||
+        imageData.width <= 0 ||
+        imageData.height <= 0 ||
+        targetWidth <= 0 ||
+        targetHeight <= 0
+    ) {
+        return imageData;
+    }
+    const width = Math.max(1, Math.round(targetWidth));
+    const height = Math.max(1, Math.round(targetHeight));
+    if (imageData.width === width && imageData.height === height) {
+        return {
+            width,
+            height,
+            data: new Uint8ClampedArray(imageData.data)
+        };
+    }
+
+    const output = new Uint8ClampedArray(width * height * 4);
+    const source = imageData.data;
+    const scaleX = width > 1 ? (imageData.width - 1) / (width - 1) : 0;
+    const scaleY = height > 1 ? (imageData.height - 1) / (height - 1) : 0;
+
+    for (let y = 0; y < height; y++) {
+        const sourceY = y * scaleY;
+        const y0 = Math.floor(sourceY);
+        const y1 = Math.min(imageData.height - 1, y0 + 1);
+        const wy = sourceY - y0;
+        for (let x = 0; x < width; x++) {
+            const sourceX = x * scaleX;
+            const x0 = Math.floor(sourceX);
+            const x1 = Math.min(imageData.width - 1, x0 + 1);
+            const wx = sourceX - x0;
+            const dst = (y * width + x) * 4;
+            const i00 = (y0 * imageData.width + x0) * 4;
+            const i10 = (y0 * imageData.width + x1) * 4;
+            const i01 = (y1 * imageData.width + x0) * 4;
+            const i11 = (y1 * imageData.width + x1) * 4;
+
+            for (let c = 0; c < 4; c++) {
+                const top = source[i00 + c] * (1 - wx) + source[i10 + c] * wx;
+                const bottom = source[i01 + c] * (1 - wx) + source[i11 + c] * wx;
+                output[dst + c] = Math.round(top * (1 - wy) + bottom * wy);
+            }
+        }
+    }
+
+    return { width, height, data: output };
+}
+
+function createAllenkRuntimeInputImageData(prepared, runtimeSize) {
+    if (!runtimeSize) return prepared.padded;
+    if (prepared.padded.width === runtimeSize.width && prepared.padded.height === runtimeSize.height) {
+        return prepared.padded;
+    }
+    return resizeImageDataLike(prepared.padded, runtimeSize.width, runtimeSize.height);
+}
+
+function normalizeAllenkDenoisedRuntimeOutput(prepared, denoised) {
+    const imageData = denoised?.imageData;
+    if (!imageData?.data) return denoised;
+    if (imageData.width === prepared.padded.width && imageData.height === prepared.padded.height) {
+        return denoised;
+    }
+    return {
+        ...denoised,
+        imageData: resizeImageDataLike(imageData, prepared.padded.width, prepared.padded.height)
+    };
 }
 
 export function normalizeVideoCleanupOptions(options = {}) {
@@ -938,7 +1020,14 @@ function applyAllenkFdncnnRuntime(ctx, position, alphaMap, {
         };
     }
 
-    const prepared = prepareAllenkFdncnnRuntimeInput(ctx, position, alphaMap, { sigma, strength, padding });
+    const runtimeSize = getAllenkRuntimeInputSize(runtime);
+    const prepared = prepareAllenkFdncnnRuntimeInput(ctx, position, alphaMap, {
+        sigma,
+        strength,
+        padding,
+        targetWidth: runtimeSize?.width,
+        targetHeight: runtimeSize?.height
+    });
     if (!prepared) {
         return {
             denoiseRuntimeStatus: 'skipped',
@@ -946,30 +1035,35 @@ function applyAllenkFdncnnRuntime(ctx, position, alphaMap, {
         };
     }
     const denoised = runtime.denoiseImageData({
-        imageData: prepared.padded,
+        imageData: createAllenkRuntimeInputImageData(prepared, runtimeSize),
         sigma: prepared.options.sigma
     });
-    applyAllenkFdncnnDenoisedPatch(ctx, prepared, denoised);
+    const normalizedDenoised = normalizeAllenkDenoisedRuntimeOutput(prepared, denoised);
+    applyAllenkFdncnnDenoisedPatch(ctx, prepared, normalizedDenoised);
 
     return {
         denoiseRuntimeStatus: 'applied',
-        denoiseRuntime: denoised.runtime || runtime.id || 'allenk-fdncnn-runtime',
-        denoiseRuntimeMacs: denoised.macs ?? null,
-        denoiseRuntimeRunMs: denoised.runMs ?? null
+        denoiseRuntime: normalizedDenoised.runtime || runtime.id || 'allenk-fdncnn-runtime',
+        denoiseRuntimeMacs: normalizedDenoised.macs ?? null,
+        denoiseRuntimeRunMs: normalizedDenoised.runMs ?? null
     };
 }
 
 function prepareAllenkFdncnnRuntimeInput(ctx, position, alphaMap, {
     sigma = DEFAULT_ALLENK_FDNCNN_SIGMA,
     strength = DEFAULT_EDGE_DENOISE_STRENGTH,
-    padding = undefined
+    padding = undefined,
+    targetWidth = null,
+    targetHeight = null
 } = {}) {
     const options = normalizeAllenkFdncnnOptions({ sigma, strength, padding });
-    const paddedRoi = calculateAllenkPaddedRoi({
+    const paddedRoi = calculateAllenkRuntimeRoi({
         imageWidth: ctx.canvas.width,
         imageHeight: ctx.canvas.height,
         region: position,
-        padding: options.padding
+        padding: options.padding,
+        targetWidth,
+        targetHeight
     });
     if (!paddedRoi) return null;
 
@@ -1080,7 +1174,14 @@ async function applyAllenkFdncnnRuntimeAsync(ctx, position, alphaMap, {
         };
     }
 
-    const prepared = prepareAllenkFdncnnRuntimeInput(ctx, position, alphaMap, { sigma, strength, padding });
+    const runtimeSize = getAllenkRuntimeInputSize(runtime);
+    const prepared = prepareAllenkFdncnnRuntimeInput(ctx, position, alphaMap, {
+        sigma,
+        strength,
+        padding,
+        targetWidth: runtimeSize?.width,
+        targetHeight: runtimeSize?.height
+    });
     if (!prepared) {
         return {
             denoiseRuntimeStatus: 'skipped',
@@ -1107,21 +1208,22 @@ async function applyAllenkFdncnnRuntimeAsync(ctx, position, alphaMap, {
         }
     }
     const denoised = await runtime.denoiseImageData({
-        imageData: prepared.padded,
+        imageData: createAllenkRuntimeInputImageData(prepared, runtimeSize),
         sigma: prepared.options.sigma
     });
-    applyAllenkFdncnnDenoisedPatch(ctx, prepared, denoised);
+    const normalizedDenoised = normalizeAllenkDenoisedRuntimeOutput(prepared, denoised);
+    applyAllenkFdncnnDenoisedPatch(ctx, prepared, normalizedDenoised);
     if (reuseConfig && frameCache) {
         frameCache.previousInput = cacheInput;
-        frameCache.denoised = cloneDenoisedResult(denoised);
+        frameCache.denoised = cloneDenoisedResult(normalizedDenoised);
         frameCache.reuseCount = 0;
     }
 
     return {
         denoiseRuntimeStatus: 'applied',
-        denoiseRuntime: denoised.runtime || runtime.id || 'allenk-fdncnn-runtime',
-        denoiseRuntimeMacs: denoised.macs ?? null,
-        denoiseRuntimeRunMs: denoised.runMs ?? null
+        denoiseRuntime: normalizedDenoised.runtime || runtime.id || 'allenk-fdncnn-runtime',
+        denoiseRuntimeMacs: normalizedDenoised.macs ?? null,
+        denoiseRuntimeRunMs: normalizedDenoised.runMs ?? null
     };
 }
 
