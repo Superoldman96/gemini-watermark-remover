@@ -40,13 +40,14 @@ test('internal dev preview page should not depend on external Tailwind CDN', asy
     assert.match(html, /href="dev-preview\.css"/i);
 });
 
-test('internal dev preview page should be slimmed down to a single-image harness', async () => {
+test('internal dev preview page should support multi-file image batches without old zip download UI', async () => {
     const html = await readText('public/dev-preview.html');
 
-    assert.doesNotMatch(html, /id="multiPreview"/i);
-    assert.doesNotMatch(html, /id="imageList"/i);
+    assert.match(html, /<input[^>]+id="fileInput"[^>]+\bmultiple\b/i);
+    assert.match(html, /id="multiPreview"/i);
+    assert.match(html, /id="imageList"/i);
+    assert.match(html, /id="progressText"/i);
     assert.doesNotMatch(html, /id="downloadAllBtn"/i);
-    assert.doesNotMatch(html, /\bmultiple\b/i);
 });
 
 test('internal dev preview page should not expose language switch, theme toggle, or html i18n hooks', async () => {

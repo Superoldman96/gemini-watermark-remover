@@ -60,9 +60,9 @@
               <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
             </div>
             <p class="mb-1 text-base font-medium text-gray-800">点击或拖拽文件到此处</p>
-            <p class="text-xs text-gray-400">支持 JPG, PNG, WebP, MP4 等</p>
+            <p class="text-xs text-gray-400">支持多选 JPG, PNG, WebP；视频会进入视频流程</p>
           </div>
-          <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime,video/*" class="hidden" />
+          <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime,video/*" multiple class="hidden" />
         </div>
       </div>
     </section>
@@ -121,6 +121,21 @@
             <div id="statusMessage" class="mt-4 text-xs text-gray-500 min-h-[1.25rem]"></div>
           </div>
         </div>
+      </div>
+    </section>
+
+    <section id="multiPreview" class="max-w-6xl mx-auto px-4" style="display: none;">
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div class="bg-gray-50/80 px-4 py-2.5 border-b border-gray-200 flex justify-between items-center">
+          <div>
+            <h3 class="text-sm font-semibold text-gray-700">批量预览</h3>
+            <p id="progressText" class="text-xs text-gray-500">处理进度: 0/0</p>
+          </div>
+          <button id="batchResetBtn" class="py-2 px-4 bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 active:scale-[0.98] rounded-lg text-sm font-medium transition-transform duration-100">
+            更换文件
+          </button>
+        </div>
+        <div id="imageList" class="batch-list"></div>
       </div>
     </section>
   </main>

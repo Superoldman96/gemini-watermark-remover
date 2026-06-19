@@ -18,7 +18,6 @@ import {
 import {
     consumeDebugFileHandoff,
     getDebugFileKind,
-    pickDebugUploadFile,
     saveDebugFileHandoff
 } from './shared/debugFileHandoff.js';
 
@@ -36,16 +35,28 @@ const TEXT = {
     copyFailed: '复制失败',
     unsupportedFile: '请选择 JPG、PNG、WebP 图片，或 MP4/WebM/MOV 视频。',
     fileTooLarge: '图片调试入口暂不处理超过 20MB 的图片。视频会进入视频调试页。',
-    handoffVideo: '正在进入视频调试流程...'
+    skippedLargeImages: '已跳过超过 20MB 的图片。',
+    handoffVideo: '正在进入视频调试流程...',
+    progress: '处理进度',
+    pending: '等待处理',
+    loadingImage: '读取图片...',
+    processing: '正在处理...',
+    processFailed: '处理失败'
 };
 
 let enginePromise = null;
 let workerClient = null;
 let currentItem = null;
+let imageQueue = [];
+let processedCount = 0;
+let activeBatchId = 0;
 
 const uploadArea = document.getElementById('uploadArea');
 const fileInput = document.getElementById('fileInput');
 const singlePreview = document.getElementById('singlePreview');
+const multiPreview = document.getElementById('multiPreview');
+const imageList = document.getElementById('imageList');
+const progressText = document.getElementById('progressText');
 const originalImage = document.getElementById('originalImage');
 const processedImage = document.getElementById('processedImage');
 const originalInfo = document.getElementById('originalInfo');
@@ -53,6 +64,7 @@ const processedInfo = document.getElementById('processedInfo');
 const downloadBtn = document.getElementById('downloadBtn');
 const copyBtn = document.getElementById('copyBtn');
 const resetBtn = document.getElementById('resetBtn');
+const batchResetBtn = document.getElementById('batchResetBtn');
 const processedOverlay = document.getElementById('processedOverlay');
 const sliderHandle = document.getElementById('sliderHandle');
 
@@ -90,6 +102,16 @@ function cleanupCurrentItem() {
     if (currentItem.originalUrl) URL.revokeObjectURL(currentItem.originalUrl);
     if (currentItem.processedUrl) URL.revokeObjectURL(currentItem.processedUrl);
     currentItem = null;
+}
+
+function cleanupBatchItems() {
+    activeBatchId++;
+    imageQueue.forEach((item) => {
+        if (item.originalUrl) URL.revokeObjectURL(item.originalUrl);
+        if (item.processedUrl) URL.revokeObjectURL(item.processedUrl);
+    });
+    imageQueue = [];
+    processedCount = 0;
 }
 
 async function init() {
@@ -158,15 +180,21 @@ function setupEventListeners() {
     });
 
     resetBtn.addEventListener('click', reset);
+    batchResetBtn.addEventListener('click', reset);
     window.addEventListener('beforeunload', () => {
+        cleanupBatchItems();
         disableWorkerClient('beforeunload');
     });
 }
 
 function reset() {
     cleanupCurrentItem();
+    cleanupBatchItems();
     singlePreview.style.display = 'none';
+    multiPreview.style.display = 'none';
     fileInput.value = '';
+    imageList.innerHTML = '';
+    updateProgress();
     originalImage.src = '';
     processedImage.src = '';
     originalInfo.innerHTML = '';
@@ -187,25 +215,39 @@ function handleFileSelect(e) {
 async function handleFiles(files) {
     setStatusMessage('');
 
-    const validFile = pickDebugUploadFile(files);
+    const list = Array.from(files || []).filter(Boolean);
+    const videoFile = list.find((file) => getDebugFileKind(file) === 'video');
+    if (videoFile) {
+        await routeVideoFile(videoFile);
+        return;
+    }
 
-    if (!validFile) {
+    const imageFiles = list.filter((file) => getDebugFileKind(file) === 'image');
+    if (imageFiles.length === 0) {
         setStatusMessage(TEXT.unsupportedFile, 'warn');
         return;
     }
 
-    const fileKind = getDebugFileKind(validFile);
-    if (fileKind === 'video') {
-        await routeVideoFile(validFile);
-        return;
-    }
-
-    if (validFile.size > 20 * 1024 * 1024) {
+    const validImageFiles = imageFiles.filter((file) => file.size <= 20 * 1024 * 1024);
+    if (validImageFiles.length === 0) {
         setStatusMessage(TEXT.fileTooLarge, 'warn');
         return;
     }
 
+    if (validImageFiles.length < imageFiles.length) {
+        setStatusMessage(TEXT.skippedLargeImages, 'warn');
+    }
+
+    if (validImageFiles.length > 1) {
+        processBatch(validImageFiles);
+        return;
+    }
+
+    const validFile = validImageFiles[0];
     cleanupCurrentItem();
+    cleanupBatchItems();
+    multiPreview.style.display = 'none';
+    imageList.innerHTML = '';
     currentItem = {
         id: Date.now(),
         file: validFile,
@@ -219,6 +261,36 @@ async function handleFiles(files) {
 
     singlePreview.style.display = 'block';
     processSingle(currentItem);
+}
+
+function createDebugImageItem(file, index) {
+    return {
+        id: `${Date.now()}-${index}`,
+        file,
+        name: file.name,
+        status: 'pending',
+        originalImg: null,
+        processedMeta: null,
+        processedBlob: null,
+        originalUrl: null,
+        processedUrl: null
+    };
+}
+
+function processBatch(files) {
+    cleanupCurrentItem();
+    cleanupBatchItems();
+
+    imageQueue = files.map(createDebugImageItem);
+    singlePreview.style.display = 'none';
+    multiPreview.style.display = 'block';
+    imageList.innerHTML = '';
+    updateProgress();
+    imageQueue.forEach((item) => createImageCard(item));
+    multiPreview.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    const batchId = activeBatchId;
+    processQueue(batchId);
 }
 
 async function routeVideoFile(file) {
@@ -316,6 +388,117 @@ async function processSingle(item) {
         document.getElementById('comparisonContainer').scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (error) {
         console.error(error);
+    }
+}
+
+function createImageCard(item) {
+    const card = document.createElement('div');
+    card.id = `card-${item.id}`;
+    card.className = 'batch-card';
+    card.innerHTML = `
+        <div class="batch-thumb">
+            <img id="result-${item.id}" class="batch-image" draggable="false" alt="" />
+        </div>
+        <div class="batch-main">
+            <h4 class="batch-title"></h4>
+            <div class="batch-status" id="status-${item.id}"></div>
+        </div>
+        <div class="batch-actions">
+            <button id="copy-${item.id}" class="batch-button primary" style="display: none;">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m-1 10H8m4-3H8m1.5 6H8"></path></svg>
+                <span>${TEXT.copy}</span>
+            </button>
+            <button id="download-${item.id}" class="batch-button secondary" style="display: none;">
+                下载结果
+            </button>
+        </div>
+    `;
+    imageList.appendChild(card);
+
+    const title = card.querySelector('.batch-title');
+    title.textContent = typeof item.name === 'string' ? item.name : '';
+    title.title = title.textContent;
+    renderImageCardStatus(item);
+}
+
+function renderImageCardStatus(item) {
+    const statusEl = document.getElementById(`status-${item.id}`);
+    if (!statusEl) return;
+
+    if (item.status === 'completed') {
+        statusEl.textContent = getProcessedStatusLabel(item);
+        statusEl.classList.add('text-primary');
+        return;
+    }
+    statusEl.classList.remove('text-primary');
+
+    const labels = {
+        pending: TEXT.pending,
+        loading: TEXT.loadingImage,
+        processing: TEXT.processing,
+        error: TEXT.processFailed
+    };
+    statusEl.textContent = labels[item.status] || TEXT.pending;
+}
+
+function updateProgress() {
+    progressText.textContent = `${TEXT.progress}: ${processedCount}/${imageQueue.length}`;
+}
+
+async function processQueue(batchId) {
+    const concurrency = 3;
+    for (let i = 0; i < imageQueue.length; i += concurrency) {
+        if (batchId !== activeBatchId) return;
+
+        await Promise.all(imageQueue.slice(i, i + concurrency).map(async (item) => {
+            if (batchId !== activeBatchId || item.status !== 'pending') return;
+
+            item.status = 'loading';
+            renderImageCardStatus(item);
+
+            try {
+                const img = await loadImage(item.file);
+                if (batchId !== activeBatchId) return;
+
+                item.originalImg = img;
+                item.originalUrl = img.src;
+                const resultImage = document.getElementById(`result-${item.id}`);
+                if (resultImage) resultImage.src = img.src;
+
+                item.status = 'processing';
+                renderImageCardStatus(item);
+
+                const processed = await processImageWithBestPath(item.file, img);
+                if (batchId !== activeBatchId) return;
+
+                item.processedMeta = processed.meta;
+                item.processedBlob = processed.blob;
+                item.processedUrl = URL.createObjectURL(processed.blob);
+                if (resultImage) resultImage.src = item.processedUrl;
+
+                item.status = 'completed';
+                processedCount++;
+                renderImageCardStatus(item);
+                updateProgress();
+
+                const itemCopyBtn = document.getElementById(`copy-${item.id}`);
+                if (itemCopyBtn) {
+                    itemCopyBtn.style.display = 'inline-flex';
+                    itemCopyBtn.onclick = () => copyImage(item, itemCopyBtn);
+                }
+
+                const itemDownloadBtn = document.getElementById(`download-${item.id}`);
+                if (itemDownloadBtn) {
+                    itemDownloadBtn.style.display = 'inline-flex';
+                    itemDownloadBtn.onclick = () => downloadImage(item);
+                }
+            } catch (error) {
+                if (batchId !== activeBatchId) return;
+                item.status = 'error';
+                renderImageCardStatus(item);
+                console.error(error);
+            }
+        }));
     }
 }
 

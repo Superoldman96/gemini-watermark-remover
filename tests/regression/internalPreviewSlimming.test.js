@@ -8,17 +8,17 @@ function readRepoText(relativePath) {
     return readFileSync(new URL(`../../${relativePath}`, import.meta.url), 'utf8');
 }
 
-test('internal preview app should not keep batch-preview-only imports and functions', () => {
+test('internal preview app should keep lightweight batch processing without retired zip dependency', () => {
     const appSource = loadModuleSource('../../src/app.js', import.meta.url);
 
     assert.equal(hasImportedBinding(appSource, 'jszip', 'default'), false);
     assert.equal(hasImportedBinding(appSource, 'medium-zoom', 'default'), false);
-    assert.equal(appSource.includes('function createImageCard('), false);
-    assert.equal(appSource.includes('async function processQueue('), false);
     assert.equal(appSource.includes('async function downloadAll('), false);
-    assert.equal(appSource.includes('multiPreview'), false);
-    assert.equal(appSource.includes('imageList'), false);
     assert.equal(appSource.includes('downloadAllBtn'), false);
+    assert.equal(appSource.includes('function createImageCard('), true);
+    assert.equal(appSource.includes('async function processQueue('), true);
+    assert.equal(appSource.includes('multiPreview'), true);
+    assert.equal(appSource.includes('imageList'), true);
 });
 
 test('internal preview app should not keep runtime i18n or dark-mode wiring', () => {
