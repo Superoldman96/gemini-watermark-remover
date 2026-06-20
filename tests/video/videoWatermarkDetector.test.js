@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
+
+import sharp from 'sharp';
 
 import {
     buildVideoWatermarkPolarityProbe,
@@ -54,6 +57,18 @@ function applyDarkWatermark(imageData, alphaMap, position) {
             }
         }
     }
+}
+
+async function decodeFixtureImageData(filePath) {
+    const { data, info } = await sharp(filePath)
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+    return {
+        width: info.width,
+        height: info.height,
+        data: new Uint8ClampedArray(data)
+    };
 }
 
 test('getVideoAlphaMap should use a softer edge boost for inset video candidates', () => {
@@ -148,6 +163,50 @@ test('detectVideoWatermarkFromFrames should auto-select a legacy alpha shape for
         alphaProfile: '96',
         edgeBoost: result.summary.alphaShape.selected.edgeBoost
     }));
+});
+
+test('detectVideoWatermarkFromFrames should auto-select legacy alpha on 20260619 relocated ROI fixtures', async () => {
+    const fixtureDir = path.resolve('tests/fixtures/video-relocated-alpha/20260619');
+    const frames = [];
+    for (const [index, fileName] of ['roi-t1.png', 'roi-t5.png', 'roi-t9.png'].entries()) {
+        frames.push({
+            timestamp: index,
+            imageData: await decodeFixtureImageData(path.join(fixtureDir, fileName))
+        });
+    }
+    const candidate = {
+        id: 'fixture-20260619-relocated-48',
+        label: '20260619 relocated ROI fixture',
+        x: 40,
+        y: 40,
+        size: 48,
+        width: 48,
+        height: 48,
+        marginRight: 40,
+        marginBottom: 40,
+        sourceFamily: 'fixture',
+        evidenceGate: 'required'
+    };
+
+    const result = detectVideoWatermarkFromFrames({
+        frames,
+        width: 128,
+        height: 128,
+        candidates: [candidate],
+        minConfidence: 0.02
+    });
+
+    assert.equal(result.candidate.id, candidate.id);
+    assert.equal(result.isConfident, true);
+    assert.equal(result.summary.alphaShape.accepted, true);
+    assert.equal(result.summary.alphaShape.selected.profile, '96');
+    assert.notEqual(result.summary.alphaShape.selected.name, 'default');
+    assert.ok(result.summary.alphaShape.baseline.meanConfidence > 0.75);
+    assert.ok(result.summary.alphaShape.selected.meanConfidence < 0.36);
+    assert.ok(
+        result.summary.alphaShape.baseline.meanConfidence - result.summary.alphaShape.selected.meanConfidence > 0.4
+    );
+    assert.ok(result.alphaSeed.seedGain >= 1.2);
 });
 
 test('getVideoAlphaMap should support experimental local body scaling', () => {
