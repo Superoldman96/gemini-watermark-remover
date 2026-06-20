@@ -8,12 +8,21 @@ import { getEmbeddedAlphaMap } from '../../src/core/embeddedAlphaMaps.js';
 import { processWatermarkImageData } from '../../src/core/watermarkProcessor.js';
 import { interpolateAlphaMap, warpAlphaMap, computeRegionSpatialCorrelation } from '../../src/core/adaptiveDetector.js';
 import { assessRemovalDiffArtifacts } from '../../src/core/restorationMetrics.js';
+import { loadLocalEnv } from '../../scripts/local-env.js';
 import { decodeImageDataInNode } from '../../scripts/sample-benchmark.js';
 import {
     applySyntheticWatermark,
     createPatternImageData,
     createSyntheticAlphaMap
 } from './syntheticWatermarkTestUtils.js';
+
+loadLocalEnv();
+
+const EXTERNAL_SAMPLE_ROOT = path.resolve(process.env.GWR_SAMPLE_ROOT || 'sample-files/gemini-watermark');
+
+function externalSamplePath(...segments) {
+    return path.resolve(EXTERNAL_SAMPLE_ROOT, ...segments);
+}
 
 test('processWatermarkImageData should run in Node without asset imports and record single-pass meta', () => {
     const alpha96 = createSyntheticAlphaMap(96);
@@ -412,13 +421,13 @@ test('processWatermarkImageData should select the near-official scaled large-mar
 test('processWatermarkImageData should relocate visible 45px fixed-local residuals to the matched small anchor', async (t) => {
     const cases = [
         {
-            samplePath: 'D:/Project/sample-files/gemini-watermark/2026-06-09/2064244525538217984-source.png',
+            samplePath: externalSamplePath('2026-06-09/2064244525538217984-source.png'),
             expectedConfig: { logoSize: 46, marginRight: 32, marginBottom: 42 },
             maxSpatial: 0.08,
             maxGradient: 0.22
         },
         {
-            samplePath: 'D:/Project/sample-files/gemini-watermark/样本/Gemini_Generated_Image_21odi621odi621od.png',
+            samplePath: externalSamplePath('样本/Gemini_Generated_Image_21odi621odi621od.png'),
             expectedConfigRange: {
                 logoSize: [47, 52],
                 marginRight: [39, 42],
@@ -485,17 +494,14 @@ test('processWatermarkImageData should relocate visible 45px fixed-local residua
 test('processWatermarkImageData should rescue visible 48px large-margin anti-template residuals conservatively', async (t) => {
     const cases = [
         {
-            samplePath: path.resolve(
-                'D:/Project/sample-files/gemini-watermark/2026-06-09/2064208168950435840-source.png'
-            ),
+            samplePath: externalSamplePath('2026-06-09/2064208168950435840-source.png'),
             expectedConfig: { logoSize: 46, marginRight: 97, marginBottom: 97 },
             expectedAlphaGain: 0.45,
             maxSpatial: 0.04,
             maxGradient: 0.2
         },
         {
-            samplePath: path.resolve(
-                'D:/Project/sample-files/gemini-watermark',
+            samplePath: externalSamplePath(
                 '\u6837\u672c',
                 'Gemini_Generated_Image_k7kqnyk7kqnyk7kq.png'
             ),
@@ -505,8 +511,7 @@ test('processWatermarkImageData should rescue visible 48px large-margin anti-tem
             maxGradient: 0.08
         },
         {
-            samplePath: path.resolve(
-                'D:/Project/sample-files/gemini-watermark',
+            samplePath: externalSamplePath(
                 '\u6837\u672c2',
                 'Gemini_Generated_Image_qn1n0lqn1n0lqn1n.png'
             ),
@@ -516,8 +521,7 @@ test('processWatermarkImageData should rescue visible 48px large-margin anti-tem
             maxGradient: 0.14
         },
         {
-            samplePath: path.resolve(
-                'D:/Project/sample-files/gemini-watermark',
+            samplePath: externalSamplePath(
                 '\u6837\u672c',
                 'Gemini_Generated_Image_xxexx6xxexx6xxex.png'
             ),
@@ -527,8 +531,7 @@ test('processWatermarkImageData should rescue visible 48px large-margin anti-tem
             maxGradient: 0.14
         },
         {
-            samplePath: path.resolve(
-                'D:/Project/sample-files/gemini-watermark',
+            samplePath: externalSamplePath(
                 '\u6837\u672c',
                 'Gemini_Generated_Image_pe3we7pe3we7pe3w.png'
             ),
@@ -538,8 +541,7 @@ test('processWatermarkImageData should rescue visible 48px large-margin anti-tem
             maxGradient: 0.05
         },
         {
-            samplePath: path.resolve(
-                'D:/Project/sample-files/gemini-watermark',
+            samplePath: externalSamplePath(
                 '\u6837\u672c',
                 'Gemini_Generated_Image_nz9g4wnz9g4wnz9g.png'
             ),
@@ -593,8 +595,7 @@ test('processWatermarkImageData should rescue visible 48px large-margin anti-tem
 });
 
 test('processWatermarkImageData should rescue quantized negative body residuals without broad cleanup', async (t) => {
-    const samplePath = path.resolve(
-        'D:/Project/sample-files/gemini-watermark',
+    const samplePath = externalSamplePath(
         '\u6837\u672c',
         'Gemini_Generated_Image_wn0cz5wn0cz5wn0c.png'
     );
@@ -638,8 +639,7 @@ test('processWatermarkImageData should rescue quantized negative body residuals 
 });
 
 test('processWatermarkImageData should rescue strong positive 48px residuals with a gated power profile', async (t) => {
-    const samplePath = path.resolve(
-        'D:/Project/sample-files/gemini-watermark',
+    const samplePath = externalSamplePath(
         '\u6837\u672c2',
         'Gemini_Generated_Image_mt4wolmt4wolmt4w.png'
     );
@@ -684,8 +684,7 @@ test('processWatermarkImageData should rescue strong positive 48px residuals wit
 });
 
 test('processWatermarkImageData should rescue low-texture 48px boundary residuals without broad cleanup', async (t) => {
-    const samplePath = path.resolve(
-        'D:/Project/sample-files/gemini-watermark',
+    const samplePath = externalSamplePath(
         '\u6837\u672c',
         'Gemini_Generated_Image_hoac1lhoac1lhoac.png'
     );
@@ -742,8 +741,7 @@ test('processWatermarkImageData should rescue low-texture 48px boundary residual
 test('processWatermarkImageData should rescue dark halo residuals with conservative low-logo inversion', async (t) => {
     const cases = [
         {
-            samplePath: path.resolve(
-                'D:/Project/sample-files/gemini-watermark',
+            samplePath: externalSamplePath(
                 '\u6837\u672c',
                 'Gemini_Generated_Image_9eao4b9eao4b9eao.png'
             ),
@@ -752,8 +750,7 @@ test('processWatermarkImageData should rescue dark halo residuals with conservat
             maxGradient: 0.2
         },
         {
-            samplePath: path.resolve(
-                'D:/Project/sample-files/gemini-watermark',
+            samplePath: externalSamplePath(
                 '\u6837\u672c2',
                 'Gemini_Generated_Image_25ukbi25ukbi25uk.png'
             ),
@@ -806,7 +803,7 @@ test('processWatermarkImageData should rescue dark halo residuals with conservat
 });
 
 test('processWatermarkImageData should allow stronger mid-alpha on strong 48px large-margin residuals', async (t) => {
-    const samplePath = path.resolve('D:/Project/sample-files/gemini-watermark/样本/Gemini_Generated_Image_n79y30n79y30n79y.png');
+    const samplePath = externalSamplePath('样本/Gemini_Generated_Image_n79y30n79y30n79y.png');
     try {
         await access(samplePath);
     } catch {
@@ -1703,7 +1700,7 @@ test('processWatermarkImageData should not over-remove the 2752x1536 canonical s
 });
 
 test('processWatermarkImageData should allow strong 2752x1536 new-margin alpha evidence through flat-background hard reject', async (t) => {
-    const samplePath = path.resolve('D:/Project/sample-files/gemini-watermark/2026-06-09/2064208514779189248-source.png');
+    const samplePath = externalSamplePath('2026-06-09/2064208514779189248-source.png');
     try {
         await access(samplePath);
     } catch {
@@ -1752,7 +1749,7 @@ test('processWatermarkImageData should allow strong 2752x1536 new-margin alpha e
 });
 
 test('processWatermarkImageData should allow strong 96px fixed-core evidence with slight negative overshoot', async (t) => {
-    const samplePath = path.resolve('D:/Project/sample-files/gemini-watermark/2026-06-08/2064116984391405568-source.png');
+    const samplePath = externalSamplePath('2026-06-08/2064116984391405568-source.png');
     try {
         await access(samplePath);
     } catch {
@@ -1793,7 +1790,7 @@ test('processWatermarkImageData should allow strong 96px fixed-core evidence wit
 });
 
 test('processWatermarkImageData should keep 1696x2518 portrait sample on the full 96px anchor', async (t) => {
-    const samplePath = path.resolve('D:/Project/sample-files/gemini-watermark/2026-06-09/2064204960823775232-source.png');
+    const samplePath = externalSamplePath('2026-06-09/2064204960823775232-source.png');
     try {
         await access(samplePath);
     } catch {
@@ -1832,7 +1829,7 @@ test('processWatermarkImageData should keep 1696x2518 portrait sample on the ful
 });
 
 test('processWatermarkImageData should repair smooth off-catalog located residuals with an estimated alpha prior', async (t) => {
-    const samplePath = path.resolve('D:/Project/sample-files/gemini-watermark/2026-06-09/2064239698053697536-source.png');
+    const samplePath = externalSamplePath('2026-06-09/2064239698053697536-source.png');
     try {
         await access(samplePath);
     } catch {
@@ -1871,7 +1868,7 @@ test('processWatermarkImageData should repair smooth off-catalog located residua
 });
 
 test('processWatermarkImageData should prefer strong 96px evidence over a weak 48px large-margin crop', async (t) => {
-    const samplePath = path.resolve('D:/Project/sample-files/gemini-watermark/2026-06-09/2064229579895083008-source.png');
+    const samplePath = externalSamplePath('2026-06-09/2064229579895083008-source.png');
     try {
         await access(samplePath);
     } catch {
@@ -1911,7 +1908,7 @@ test('processWatermarkImageData should prefer strong 96px evidence over a weak 4
 });
 
 test('processWatermarkImageData should prefer strong bottom-right 48px evidence over weak 48px large-margin catalog evidence', async (t) => {
-    const samplePath = path.resolve('D:/Project/sample-files/gemini-watermark/bug/20260618.png');
+    const samplePath = externalSamplePath('bug/20260618.png');
     try {
         await access(samplePath);
     } catch {
@@ -1952,7 +1949,7 @@ test('processWatermarkImageData should prefer strong bottom-right 48px evidence 
 });
 
 test('processWatermarkImageData should remove the 20260618-2 text-overlap watermark without treating it as no-target', async (t) => {
-    const samplePath = path.resolve('D:/Project/sample-files/gemini-watermark/bug/20260618-2.png');
+    const samplePath = externalSamplePath('bug/20260618-2.png');
     try {
         await access(samplePath);
     } catch {

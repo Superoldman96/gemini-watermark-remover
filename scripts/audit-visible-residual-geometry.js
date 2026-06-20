@@ -4,11 +4,14 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
+import { loadLocalEnv } from './local-env.js';
 import { runSampleWatermarkScan } from './scan-sample-watermarks.js';
+
+loadLocalEnv();
 
 const DEFAULT_REVIEW_MANIFEST_PATH = path.resolve('.artifacts/visible-residual-crops/latest/review-manifest.json');
 const DEFAULT_OUTPUT_DIR = path.resolve('.artifacts/visible-residual-crops/latest/geometry-audit');
-const DEFAULT_SAMPLE_ROOT = path.resolve('D:/Project/sample-files/gemini-watermark');
+const DEFAULT_SAMPLE_ROOT = path.resolve(process.env.GWR_SAMPLE_ROOT || 'sample-files/gemini-watermark');
 
 function parseArgs(argv) {
     const parsed = {

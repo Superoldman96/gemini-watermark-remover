@@ -140,7 +140,7 @@
 
 样例：
 
-- `D:\Project\sample-files\gemini-video-watermark\4d420881-c144-497f-9a6e-43beda086580.mp4`
+- `${GWR_VIDEO_SAMPLE_ROOT}\4d420881-c144-497f-9a6e-43beda086580.mp4`
 
 allenk 输出：
 
@@ -311,7 +311,7 @@ NcnnDenoiser: sigma=75, strength=180%, roi=200x200, 5184 edge pixels
 当前推荐用固定脚本重建对比图：
 
 ```powershell
-rtk pnpm render:video-crops -- --original D:\Project\sample-files\gemini-video-watermark\4d420881-c144-497f-9a6e-43beda086580.mp4 --current .artifacts\video-alpha-research\4d420881-gwr-video-mvp-edgeboost045-cleanup150.mp4 --allenk .artifacts\allenk-video\4d420881-allenk-v062.mp4 --output .artifacts\video-crop-sheets\4d420881-edgeboost045-cleanup150.png --timestamps 1,3,5,7,9
+rtk pnpm render:video-crops -- --original ${GWR_VIDEO_SAMPLE_ROOT}\4d420881-c144-497f-9a6e-43beda086580.mp4 --current .artifacts\video-alpha-research\4d420881-gwr-video-mvp-edgeboost045-cleanup150.mp4 --allenk .artifacts\allenk-video\4d420881-allenk-v062.mp4 --output .artifacts\video-crop-sheets\4d420881-edgeboost045-cleanup150.png --timestamps 1,3,5,7,9
 ```
 
 当前 benchmark 主产物：
@@ -897,7 +897,7 @@ rtk pnpm report:video-frame-lab -- --reports .artifacts/video-frame-backend-lab/
 - 首次用新脚本复跑当前基线：
 
 ```powershell
-rtk pnpm analyze:video-residual -- --current .artifacts\video-alpha-research\4d420881-gwr-video-mvp-edgeboost045-narrow-mask.mp4 --allenk .artifacts\allenk-video\4d420881-allenk-v062.mp4 --original D:\Project\sample-files\gemini-video-watermark\4d420881-c144-497f-9a6e-43beda086580.mp4 --output .artifacts\video-residual\4d420881-edgeboost045-narrow-mask.json --timestamps 1,3,5,7,9
+rtk pnpm analyze:video-residual -- --current .artifacts\video-alpha-research\4d420881-gwr-video-mvp-edgeboost045-narrow-mask.mp4 --allenk .artifacts\allenk-video\4d420881-allenk-v062.mp4 --original ${GWR_VIDEO_SAMPLE_ROOT}\4d420881-c144-497f-9a6e-43beda086580.mp4 --output .artifacts\video-residual\4d420881-edgeboost045-narrow-mask.json --timestamps 1,3,5,7,9
 ```
 
 - 报告：
@@ -3001,7 +3001,7 @@ rtk pnpm analyze:video-residual -- --current .artifacts\video-alpha-research\4d4
 - 运行方式：
   - Playwright 打开 `dist/video-preview.html`。
   - 上传：
-    - `D:\Project\sample-files\gemini-video-watermark\deaee69b-bd2f-481d-ba4d-bca20a1b4c8e.mp4`
+    - `${GWR_VIDEO_SAMPLE_ROOT}\deaee69b-bd2f-481d-ba4d-bca20a1b4c8e.mp4`
   - 点击 `迁移锚点复核预设`。
   - 点击 `导出无水印视频`。
 - 输出：
@@ -3100,8 +3100,8 @@ rtk pnpm analyze:video-residual -- --current .artifacts\video-alpha-research\4d4
 - 本轮复跑命令：
 
 ```powershell
-pnpm export:video-ui-preset -- --input "D:\Project\sample-files\gemini-video-watermark\deaee69b-bd2f-481d-ba4d-bca20a1b4c8e.mp4" --output ".artifacts\video-temporal-match-delta-stabilize\match025-relocated-gated\ui-preset-script\deaee69b-ui-preset-script.mp4" --timeout-ms 360000
-pnpm export:video-ui-preset -- --input "D:\Project\sample-files\gemini-video-watermark\e1997e6e-45d5-4895-ae81-a7361c05bc37.mp4" --output ".artifacts\video-temporal-match-delta-stabilize\match025-relocated-gated\ui-preset-script\e1997e6e-ui-preset-script.mp4" --timeout-ms 360000
+pnpm export:video-ui-preset -- --input "${GWR_VIDEO_SAMPLE_ROOT}\deaee69b-bd2f-481d-ba4d-bca20a1b4c8e.mp4" --output ".artifacts\video-temporal-match-delta-stabilize\match025-relocated-gated\ui-preset-script\deaee69b-ui-preset-script.mp4" --timeout-ms 360000
+pnpm export:video-ui-preset -- --input "${GWR_VIDEO_SAMPLE_ROOT}\e1997e6e-45d5-4895-ae81-a7361c05bc37.mp4" --output ".artifacts\video-temporal-match-delta-stabilize\match025-relocated-gated\ui-preset-script\e1997e6e-ui-preset-script.mp4" --timeout-ms 360000
 ```
 
 - 输出：
@@ -3243,8 +3243,8 @@ pnpm export:video-ui-preset -- --input "D:\Project\sample-files\gemini-video-wat
 - 真实 UI 预设复跑：
 
 ```powershell
-pnpm export:video-ui-preset -- --input "D:\Project\sample-files\gemini-video-watermark\deaee69b-bd2f-481d-ba4d-bca20a1b4c8e.mp4" --output ".artifacts\video-audio-preserve\deaee69b-ui-preset-audio.mp4" --timeout-ms 360000
-pnpm export:video-ui-preset -- --input "D:\Project\sample-files\gemini-video-watermark\e1997e6e-45d5-4895-ae81-a7361c05bc37.mp4" --output ".artifacts\video-audio-preserve\e1997e6e-ui-preset-audio.mp4" --timeout-ms 360000
+pnpm export:video-ui-preset -- --input "${GWR_VIDEO_SAMPLE_ROOT}\deaee69b-bd2f-481d-ba4d-bca20a1b4c8e.mp4" --output ".artifacts\video-audio-preserve\deaee69b-ui-preset-audio.mp4" --timeout-ms 360000
+pnpm export:video-ui-preset -- --input "${GWR_VIDEO_SAMPLE_ROOT}\e1997e6e-45d5-4895-ae81-a7361c05bc37.mp4" --output ".artifacts\video-audio-preserve\e1997e6e-ui-preset-audio.mp4" --timeout-ms 360000
 ```
 
 - UI 状态：
@@ -3287,7 +3287,7 @@ pnpm export:video-ui-preset -- --input "D:\Project\sample-files\gemini-video-wat
   - `tests/scripts/videoBackendExport.test.js`
 - 检测路径验证：
   - 输入：
-    - `D:\Project\sample-files\gemini-video-watermark\deaee69b-bd2f-481d-ba4d-bca20a1b4c8e.mp4`
+    - `${GWR_VIDEO_SAMPLE_ROOT}\deaee69b-bd2f-481d-ba4d-bca20a1b4c8e.mp4`
   - 页面检测结果：
     - `1080p inset, 72px, margin 144`
     - position `1704,864`
@@ -3304,9 +3304,9 @@ pnpm export:video-ui-preset -- --input "D:\Project\sample-files\gemini-video-wat
   - 命令：
 
 ```powershell
-pnpm export:video-backend -- --input "D:\Project\sample-files\gemini-video-watermark\deaee69b-bd2f-481d-ba4d-bca20a1b4c8e.mp4" --output ".artifacts\video-auto-relocated-preset\deaee69b-auto-export-v3.mp4" --timeout-ms 360000
-pnpm export:video-backend -- --input "D:\Project\sample-files\gemini-video-watermark\e1997e6e-45d5-4895-ae81-a7361c05bc37.mp4" --output ".artifacts\video-auto-relocated-preset\e1997e6e-auto-export-v1.mp4" --timeout-ms 360000
-pnpm export:video-backend -- --input "D:\Project\sample-files\gemini-video-watermark\4d420881-c144-497f-9a6e-43beda086580.mp4" --output ".artifacts\video-auto-relocated-preset\4d420881-standard-auto-export-v1.mp4" --timeout-ms 360000
+pnpm export:video-backend -- --input "${GWR_VIDEO_SAMPLE_ROOT}\deaee69b-bd2f-481d-ba4d-bca20a1b4c8e.mp4" --output ".artifacts\video-auto-relocated-preset\deaee69b-auto-export-v3.mp4" --timeout-ms 360000
+pnpm export:video-backend -- --input "${GWR_VIDEO_SAMPLE_ROOT}\e1997e6e-45d5-4895-ae81-a7361c05bc37.mp4" --output ".artifacts\video-auto-relocated-preset\e1997e6e-auto-export-v1.mp4" --timeout-ms 360000
+pnpm export:video-backend -- --input "${GWR_VIDEO_SAMPLE_ROOT}\4d420881-c144-497f-9a6e-43beda086580.mp4" --output ".artifacts\video-auto-relocated-preset\4d420881-standard-auto-export-v1.mp4" --timeout-ms 360000
 ```
 
   - 脚本返回：
@@ -5296,7 +5296,7 @@ pnpm report:video-delivery-bundle
   - 浏览器真实导出 smoke：
     - 输入：
       - `.artifacts/allenk-fdncnn/browser-ai-smoke-025s-source.mp4`
-      - 从 `D:\Project\sample-files\gemini-video-watermark\4d420881-c144-497f-9a6e-43beda086580.mp4` 截取 `0.25s`。
+      - 从 `${GWR_VIDEO_SAMPLE_ROOT}\4d420881-c144-497f-9a6e-43beda086580.mp4` 截取 `0.25s`。
     - 页面参数：
       - `sampleCount=4`
       - `allowLowConfidence=true`

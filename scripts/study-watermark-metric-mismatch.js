@@ -19,9 +19,12 @@ import {
 } from '../src/core/restorationMetrics.js';
 import { processWatermarkImageData } from '../src/core/watermarkProcessor.js';
 import { scoreBalancedVisualCandidate } from '../src/core/watermarkScoring.js';
+import { loadLocalEnv } from './local-env.js';
 import { decodeImageDataInNode } from './sample-benchmark.js';
 
-const DEFAULT_ROOT = 'D:/Project/sample-files/gemini-watermark';
+loadLocalEnv();
+
+const DEFAULT_ROOT = path.resolve(process.env.GWR_SAMPLE_ROOT || 'sample-files/gemini-watermark');
 const DEFAULT_OUTPUT_DIR = path.resolve('.artifacts/gemini-watermark-metric-study/latest');
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp']);
 const ALPHA_GAINS = Object.freeze([0.6, 0.7, 0.85, 1, 1.1, 1.15, 1.3]);

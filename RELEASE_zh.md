@@ -74,9 +74,9 @@ pnpm release:preflight
 
 - 先检查下游项目是否存在直接 package 依赖，再决定是否 bump：
   `rg -n "@pilio/gemini-watermark-remover" --glob package.json --glob pnpm-lock.yaml`
-- 不要把 Pilio 的任务路由、processor key、i18n 文案、测试或文档中出现的 `gemini-watermark-remover` 当成必须升级 npm SDK 的证据。
-- `D:\Project\pilio` 当前走后端 Gemini 去水印处理链路；除非重新引入直接 package 依赖，否则不需要 bump `@pilio/gemini-watermark-remover`。
-- `D:\Project\geminiwatermarkremover.io` 可能仍会为本地浏览器工具直接消费 npm SDK。若本次发布了 npm 包，则更新该站的 `package.json` / `pnpm-lock.yaml`，再重新构建、测试和部署。
+- 不要把任务路由、processor key、i18n 文案、测试或文档中出现的 `gemini-watermark-remover` 当成必须升级 npm SDK 的证据。
+- 只有下游项目直接依赖 `@pilio/gemini-watermark-remover` 时，才更新该依赖。
+- 如果独立官网仍直接消费 npm SDK，则更新该站的 `package.json` / `pnpm-lock.yaml`，再重新构建、测试和部署。
 
 GitHub Release 命令示例：
 
@@ -94,11 +94,9 @@ gh release create v<version> \
 
 ## 官网同步
 
-官网项目位于独立本地目录：`D:\Project\geminiwatermarkremover.io`。
+如果你维护了独立的项目官网，则在 GitHub Release 发布后同步它：
 
-GitHub Release 发布后：
-
-1. 在官网项目中运行 `pnpm run userscript:build`。
+1. 在官网项目中运行 userscript 构建/同步命令。
    - 该命令会重新构建当前上游仓库。
    - 然后把 `dist/userscript/gemini-watermark-remover.user.js` 复制到 `public/userscript/gemini-watermark-remover.user.js`。
 2. 如果本次已经发布 npm SDK，且官网仍直接依赖该 SDK，则把 `@pilio/gemini-watermark-remover` 更新到对应版本并刷新 `pnpm-lock.yaml`。

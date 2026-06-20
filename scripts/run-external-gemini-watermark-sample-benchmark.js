@@ -5,9 +5,12 @@ import { fileURLToPath } from 'node:url';
 import { interpolateAlphaMap } from '../src/core/adaptiveDetector.js';
 import { getEmbeddedAlphaMap } from '../src/core/embeddedAlphaMaps.js';
 import { processWatermarkImageData } from '../src/core/watermarkProcessor.js';
+import { loadLocalEnv } from './local-env.js';
 import { decodeImageDataInNode } from './sample-benchmark.js';
 
-const DEFAULT_SAMPLE_ROOT = path.resolve('D:/Project/sample-files/gemini-watermark');
+loadLocalEnv();
+
+const DEFAULT_SAMPLE_ROOT = path.resolve(process.env.GWR_SAMPLE_ROOT || 'sample-files/gemini-watermark');
 const DEFAULT_OUTPUT_DIR = path.resolve('.artifacts/sample-files-gemini-watermark');
 const DEFAULT_OUTPUT_PATH = path.join(DEFAULT_OUTPUT_DIR, 'latest-strong-located-report.json');
 const DEFAULT_MARKDOWN_PATH = path.join(DEFAULT_OUTPUT_DIR, 'latest-strong-located-report.md');

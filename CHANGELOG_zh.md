@@ -104,7 +104,7 @@
 ### SDK
 
 - 将最新 Gemini 水印候选识别改进作为新的 npm SDK 版本发布，因为 `1.0.18` 已经存在于 npm。
-- 保持 SDK 发布入口不变，让 Pilio 可以依赖公开包，而不是继续维护 vendored copy。
+- 保持 SDK 发布入口不变，让下游消费者可以依赖公开包，而不是继续维护 vendored copy。
 
 ### 质量
 

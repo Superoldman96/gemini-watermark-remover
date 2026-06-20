@@ -3,8 +3,15 @@ import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
 import { resolveVideoWatermarkCandidates } from '../src/video/videoWatermarkCatalog.js';
+import { loadLocalEnv } from './local-env.js';
 
-const DEFAULT_UPSTREAM_PATH = 'D:\\Project\\GeminiWatermarkTool';
+loadLocalEnv();
+
+const DEFAULT_UPSTREAM_PATH = path.resolve(
+    process.env.GWR_ALLENK_ROOT ||
+    process.env.ALLENK_GEMINI_WATERMARK_TOOL_DIR ||
+    'external/GeminiWatermarkTool'
+);
 const DEFAULT_OUTPUT_PATH = path.resolve('.artifacts/allenk-catalog-audit/latest-report.json');
 const DEFAULT_MARKDOWN_PATH = path.resolve('.artifacts/allenk-catalog-audit/latest-report.md');
 
@@ -250,7 +257,7 @@ ${report.videoSourceMatches.length ? report.videoSourceMatches.map((item) => `- 
 
 function parseCliArgs(argv) {
     const parsed = {
-        upstreamPath: process.env.ALLENK_GEMINI_WATERMARK_TOOL_DIR || DEFAULT_UPSTREAM_PATH,
+        upstreamPath: process.env.GWR_ALLENK_ROOT || process.env.ALLENK_GEMINI_WATERMARK_TOOL_DIR || DEFAULT_UPSTREAM_PATH,
         outputPath: DEFAULT_OUTPUT_PATH,
         markdownPath: DEFAULT_MARKDOWN_PATH
     };

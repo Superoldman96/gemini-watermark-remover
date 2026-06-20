@@ -4,7 +4,8 @@
 
 ### Allenk Upstream Reference
 
-- The local fork of allenk/GeminiWatermarkTool is at `D:\Project\GeminiWatermarkTool`.
+- The local fork of allenk/GeminiWatermarkTool is at `${GWR_ALLENK_ROOT}`.
+- Local-only path variables are configured in `.env`; use `.env.example` as the public template.
 - When learning or comparing upstream watermark catalog specs, alpha maps, video rules, FDnCNN behavior, or CLI behavior, prefer this local fork over temporary clones or remote README-only assumptions.
 - Treat upstream specs as candidate priors until they are verified against this repo's sample scoring, crop sheets, and output residual gates.
 

@@ -74,9 +74,9 @@ Expected result:
 
 - Check downstream projects for a direct package dependency before bumping them:
   `rg -n "@pilio/gemini-watermark-remover" --glob package.json --glob pnpm-lock.yaml`
-- Do not treat Pilio task routes, processor keys, i18n copy, tests, or docs mentioning `gemini-watermark-remover` as evidence that the npm SDK must be bumped.
-- `D:\Project\pilio` currently uses the backend Gemini watermark processor path and should not need an `@pilio/gemini-watermark-remover` package bump unless a direct dependency is reintroduced.
-- `D:\Project\geminiwatermarkremover.io` may still consume the npm SDK for its local browser tool. If the npm package was published for the release, update that site's `package.json` / `pnpm-lock.yaml`, then rebuild, test, and deploy the site.
+- Do not treat task routes, processor keys, i18n copy, tests, or docs mentioning `gemini-watermark-remover` as evidence that the npm SDK must be bumped.
+- Only update a downstream project when it directly depends on `@pilio/gemini-watermark-remover`.
+- If a separate public website consumes the npm SDK, update that site's `package.json` / `pnpm-lock.yaml`, then rebuild, test, and deploy the site.
 
 Example GitHub Release command:
 
@@ -94,11 +94,9 @@ gh release create v<version> \
 
 ## Official Website Sync
 
-The public website is maintained in the separate local project `D:\Project\geminiwatermarkremover.io`.
+If you maintain a separate public website for the project, sync it after the GitHub Release is published:
 
-After the GitHub Release is published:
-
-1. Run `pnpm run userscript:build` in the website project.
+1. Run the website's userscript build/sync command.
    - This rebuilds this upstream repository.
    - It copies `dist/userscript/gemini-watermark-remover.user.js` to `public/userscript/gemini-watermark-remover.user.js`.
 2. If the npm SDK was published for this release and the website still directly depends on it, update `@pilio/gemini-watermark-remover` to the released version and refresh `pnpm-lock.yaml`.

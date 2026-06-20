@@ -527,7 +527,7 @@ git diff --check
 
 ## 2026-06-09 样本复盘：残留瑕疵与根因方向
 
-样本来源：`C:\Users\garga\Downloads\样本`，本轮离线分析输出位于 `.artifacts/download-samples-20260609/`。
+样本来源：`${GWR_DOWNLOAD_SAMPLE_ROOT}`，本轮离线分析输出位于 `.artifacts/download-samples-20260609/`。
 
 ### 观察到的问题
 
@@ -634,9 +634,9 @@ rtk git diff --check
 - 暂不把 preview-only 渲染模型、邻域 prior 或强 inpaint 放入生产路径。
 - 下一轮若继续提升质量，应优先做“真实 alpha 边缘模板学习 + 样本聚类”，而不是继续调阈值。
 
-## 2026-06-09 追加：`D:\Project\sample-files\gemini-watermark` 的 96px 新 margin 修复
+## 2026-06-09 追加：`${GWR_SAMPLE_ROOT}` 的 96px 新 margin 修复
 
-样本来源：`D:\Project\sample-files\gemini-watermark`，本轮复测输出位于 `.artifacts/sample-files-gemini-watermark-20260609/`。
+样本来源：`${GWR_SAMPLE_ROOT}`，本轮复测输出位于 `.artifacts/sample-files-gemini-watermark-20260609/`。
 
 ### 现象
 
@@ -956,7 +956,7 @@ pnpm build
 
 ## 2026-06-09 追加：96px fixed-core 轻微负残留放行
 
-本轮针对 `D:\Project\sample-files\gemini-watermark` 剩余高置信 skipped 继续拆因：
+本轮针对 `${GWR_SAMPLE_ROOT}` 剩余高置信 skipped 继续拆因：
 
 - 用户新生成的 7 张黑底 alpha 捕获经阈值 bbox 测量后，实际都是 `48x48` 星标捕获，不是剩余失败样本需要的 `96x96` 捕获。其中一部分是 `48/96/96`，一部分是 `48/32/32`，所以不能用于修复 96px 样本。
 - 对代表样本 `2064116984391405568-source.png` 逐项评估后，发现 `96/64/64 + bg_96 + alphaGain=1` 已经通过候选验证，残留为轻微负向 overshoot：`processedSpatial ~= -0.487`、`processedGradient ~= 0.119`，纹理风险低；真正阻断它的是 fixed-core 额外 strict 门槛 `abs(processedSpatial) <= 0.45`。
@@ -1094,7 +1094,7 @@ alpha map 对比产物：
 
 代表样本：
 
-- `D:/Project/sample-files/gemini-watermark/2026-06-09/2064246191004061696-source.png`
+- `${GWR_SAMPLE_ROOT}/2026-06-09/2064246191004061696-source.png`
 - 尺寸：`1024x1024`
 - 选中配置：`36 / 71 / 71 / v2`
 
@@ -1173,7 +1173,7 @@ alpha map 对比产物：
 
 样本目录：
 
-- `D:/Project/sample-files/gemini-watermark`
+- `${GWR_SAMPLE_ROOT}`
 
 V2 36 cleanup 复测报告：
 

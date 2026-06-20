@@ -61,13 +61,13 @@ test('parseAllenkVideoPriorsFromReadme should mark README video specs as priors'
 
 test('createAllenkCatalogAuditReport should separate source-backed rules from priors', () => {
     const report = createAllenkCatalogAuditReport({
-        upstreamPath: 'D:/Project/GeminiWatermarkTool',
+        upstreamPath: '<allenk-upstream-root>',
         imageSource: 'WatermarkVariant::V1 logo_size = 48; margin_right = 32; logo_size = 96; margin_right = 64; logo_size = 36; 192.0 * scale; margin_right = 192;',
         videoReadme: '1920x1080 landscape 1080x1920 portrait 1280x720 landscape 720x1280 portrait 720p-1 standard (48x48 at margin 72,72) 720p-2 compact (44x44 at margin 29,40)',
         videoSourceMatches: []
     });
 
-    assert.equal(report.upstreamPath, 'D:/Project/GeminiWatermarkTool');
+    assert.equal(report.upstreamPath, '<allenk-upstream-root>');
     assert.equal(report.summary.imageSourceBackedRules, 4);
     assert.equal(report.summary.videoSourceFilesFound, 0);
     assert.equal(report.summary.videoReadmePriors, 6);
