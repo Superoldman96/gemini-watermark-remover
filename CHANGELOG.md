@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.29 - 2026-07-07
+
+### SDK / CLI
+
+- Fixed the npm CLI video path reported in issue #104 by packaging the local video preview page, video app bundle, FDnCNN models, and browser ONNX runtime assets.
+- Served the packaged video preview page over a temporary local HTTP URL so the browser runtime can fetch model assets reliably instead of failing from a `file://` page.
+- Kept explicit `--video-denoise-backend` CLI selections from being overwritten by automatic video presets.
+
+### Quality
+
+- Added package and SDK regression coverage for packed video assets, local preview-page serving, and packaged CLI video export.
+
 ## 1.0.28 - 2026-06-28
 
 ### Watermark Removal

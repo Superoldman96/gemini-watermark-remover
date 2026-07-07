@@ -1,5 +1,17 @@
 # 更新日志
 
+## 1.0.29 - 2026-07-07
+
+### SDK / CLI
+
+- 修复 issue #104 报告的 npm CLI 视频路径问题：发布包现在会包含本地 video preview 页面、video app bundle、FDnCNN 模型和浏览器 ONNX runtime 资产。
+- 将打包后的 video preview 页面通过临时本地 HTTP 地址提供给浏览器，避免 `file://` 页面无法可靠 fetch 模型资产导致视频去水印失败。
+- 修复显式传入的 `--video-denoise-backend` 会被自动视频 preset 覆盖的问题。
+
+### 质量
+
+- 新增发布包和 SDK 回归覆盖，固定视频资产打包、本地 preview 页面服务，以及打包后 CLI 视频导出链路。
+
 ## 1.0.28 - 2026-06-28
 
 ### 水印移除

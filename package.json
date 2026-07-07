@@ -1,7 +1,7 @@
 {
   "name": "@pilio/gemini-watermark-remover",
   "description": "Automatically removes watermarks from Gemini AI generated images",
-  "version": "1.0.28",
+  "version": "1.0.29",
   "author": "GargantuaX",
   "sideEffects": false,
   "files": [
@@ -13,6 +13,16 @@
     "src/sdk/",
     "src/shared/",
     "src/userscript/",
+    "dist/video-preview.html",
+    "dist/video-app.js",
+    "dist/models/allenk-fdncnn/onnx-manifest.json",
+    "dist/models/allenk-fdncnn/model_core_fp32_86x74.onnx",
+    "dist/models/allenk-fdncnn/model_core_fp32_104.onnx",
+    "dist/models/allenk-fdncnn/model_core_fp32_200.onnx",
+    "dist/onnxruntime/ort-wasm-simd-threaded.js",
+    "dist/onnxruntime/ort-wasm-simd-threaded.wasm",
+    "dist/onnxruntime/ort-wasm-simd-threaded.asyncify.mjs",
+    "dist/onnxruntime/ort-wasm-simd-threaded.asyncify.wasm",
     "README.md",
     "README_zh.md",
     "LICENSE"
