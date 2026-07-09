@@ -66,7 +66,7 @@ test('release checklists should require internal comparison and readiness gates'
     );
     assert.equal(
         packageJson.scripts?.['release:preflight'],
-        'pnpm test && pnpm build && pnpm package:extension && pnpm release:quality-gate && pnpm release:goal-audit -- --fail-on-incomplete && pnpm release:ci-check'
+        'pnpm build && pnpm test && pnpm package:extension && pnpm release:quality-gate && pnpm release:goal-audit -- --fail-on-incomplete && pnpm release:ci-check'
     );
     assert.match(releaseEn, /pnpm release:preflight/);
     assert.match(releaseEn, /pnpm release:goal-audit/);

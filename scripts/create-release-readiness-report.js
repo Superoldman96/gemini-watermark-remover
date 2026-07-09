@@ -135,7 +135,7 @@ const BLOCKED_CAPABILITY_DECISIONS = Object.freeze(new Set(['blocked', 'experime
 const RELEASE_QUALITY_GATE_SCRIPT = 'pnpm compare:allenk-v2 -- --fail-on-incomplete && pnpm release:readiness -- --fail-on-not-ready';
 const RELEASE_GOAL_AUDIT_SCRIPT = 'node scripts/create-release-goal-audit-report.js';
 const RELEASE_CI_CHECK_SCRIPT = 'node scripts/check-github-ci.js --workflow ci.yml --commit HEAD --fail-closed';
-const RELEASE_PREFLIGHT_SCRIPT = 'pnpm test && pnpm build && pnpm package:extension && pnpm release:quality-gate && pnpm release:goal-audit -- --fail-on-incomplete && pnpm release:ci-check';
+const RELEASE_PREFLIGHT_SCRIPT = 'pnpm build && pnpm test && pnpm package:extension && pnpm release:quality-gate && pnpm release:goal-audit -- --fail-on-incomplete && pnpm release:ci-check';
 const RELEASE_READY_RECOMMENDATION = 'rc-current-image-defaults-with-scoped-claims';
 
 function isObject(value) {

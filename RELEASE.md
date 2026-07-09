@@ -27,7 +27,7 @@ Expected result:
 - generated userscript metadata uses the current `package.json` version
 - Chrome extension release zip, sha256 file, and `latest-extension.json` are regenerated in `release/` for GitHub Release and manual fallback installs
 - the internal comparison gate reports `current-gap-known`
-- `pnpm release:preflight` runs `pnpm test`, `pnpm build`, `pnpm package:extension`, `pnpm release:quality-gate`, `pnpm release:goal-audit -- --fail-on-incomplete`, and `pnpm release:ci-check` in order
+- `pnpm release:preflight` runs `pnpm build`, `pnpm test`, `pnpm package:extension`, `pnpm release:quality-gate`, `pnpm release:goal-audit -- --fail-on-incomplete`, and `pnpm release:ci-check` in order
 - `pnpm release:quality-gate` runs the internal comparison gate before `pnpm release:readiness -- --fail-on-not-ready`
 - `pnpm release:goal-audit` reports `goal achieved: yes` for the scoped RC objective
 - `pnpm release:ci-check` verifies the GitHub Actions CI run for the current `HEAD`; if no completed successful run exists, release preflight fails closed and prints the failing job/log summary
