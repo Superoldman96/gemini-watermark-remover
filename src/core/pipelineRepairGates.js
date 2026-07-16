@@ -43,12 +43,11 @@ export function shouldUseKnown48EdgeCleanup({
 } = {}) {
     if (selectedTrial?.provenance?.previewAnchor === true) return false;
     const sourceText = String(source || '');
-    const isStrongUndersizedAdaptive =
-        selectedTrial?.provenance?.adaptive === true &&
-        selectedTrial?.provenance?.strongUndersizedMatch === true &&
-        position?.width >= 38 &&
-        position?.width <= 42 &&
-        sourceText.startsWith('adaptive');
+    const isStrongUndersizedAdaptive = shouldUseStrongUndersizedAdaptiveCleanup({
+        selectedTrial,
+        position,
+        source
+    });
     if (
         !isStrongUndersizedAdaptive &&
         (position?.width < known48EdgeCleanupMinSize || position?.width > known48EdgeCleanupMaxSize)
@@ -63,6 +62,22 @@ export function shouldUseKnown48EdgeCleanup({
         sourceText.startsWith('standard+gain') ||
         sourceText.includes('catalog') ||
         sourceText.includes('fixed-local');
+}
+
+export function shouldUseStrongUndersizedAdaptiveCleanup({
+    selectedTrial,
+    position,
+    source
+} = {}) {
+    if (selectedTrial?.provenance?.previewAnchor === true) return false;
+    const sourceText = String(source || '');
+    return (
+        selectedTrial?.provenance?.adaptive === true &&
+        selectedTrial?.provenance?.strongUndersizedMatch === true &&
+        position?.width >= 38 &&
+        position?.width <= 42 &&
+        sourceText.startsWith('adaptive')
+    );
 }
 
 export function isV2SmallAnchorConfig(
@@ -122,6 +137,11 @@ export function createRepairCleanupFlags({
             source,
             known48EdgeCleanupMinSize,
             known48EdgeCleanupMaxSize
+        }),
+        useStrongUndersizedAdaptiveCleanup: shouldUseStrongUndersizedAdaptiveCleanup({
+            selectedTrial,
+            position,
+            source
         }),
         useV2SmallEdgeCleanup: shouldUseV2SmallEdgeCleanup({
             selectedTrial,

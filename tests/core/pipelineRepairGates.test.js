@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import * as repairGates from '../../src/core/pipelineRepairGates.js';
+
 import {
     createRepairCleanupFlags,
     isKnown48AnchorConfig,
@@ -65,6 +67,48 @@ test('known 48 cleanup gate should accept only marked undersized adaptive matche
     }
 });
 
+test('strong undersized cleanup gate should require complete adaptive provenance', () => {
+    assert.equal(typeof repairGates.shouldUseStrongUndersizedAdaptiveCleanup, 'function');
+    const shouldUseStrongUndersizedAdaptiveCleanup =
+        repairGates.shouldUseStrongUndersizedAdaptiveCleanup;
+    const selectedTrial = {
+        config: { logoSize: 40, marginRight: 82, marginBottom: 82 },
+        provenance: { adaptive: true, strongUndersizedMatch: true }
+    };
+
+    assert.equal(shouldUseStrongUndersizedAdaptiveCleanup({
+        selectedTrial,
+        position: { width: 40 },
+        source: 'adaptive+gain+fine-alpha'
+    }), true);
+
+    for (const rejected of [
+        {
+            selectedTrial: { ...selectedTrial, provenance: { adaptive: true } },
+            position: { width: 40 },
+            source: 'adaptive'
+        },
+        {
+            selectedTrial: { ...selectedTrial, provenance: { strongUndersizedMatch: true } },
+            position: { width: 40 },
+            source: 'adaptive'
+        },
+        {
+            selectedTrial: {
+                ...selectedTrial,
+                provenance: { ...selectedTrial.provenance, previewAnchor: true }
+            },
+            position: { width: 40 },
+            source: 'adaptive'
+        },
+        { selectedTrial, position: { width: 37 }, source: 'adaptive' },
+        { selectedTrial, position: { width: 43 }, source: 'adaptive' },
+        { selectedTrial, position: { width: 40 }, source: 'standard' }
+    ]) {
+        assert.equal(shouldUseStrongUndersizedAdaptiveCleanup(rejected), false);
+    }
+});
+
 test('known 48 cleanup gate should preserve the marked adaptive refinement band', () => {
     for (const width of [38, 39, 40, 41, 42]) {
         assert.equal(shouldUseKnown48EdgeCleanup({
@@ -110,6 +154,25 @@ test('createRepairCleanupFlags should aggregate cleanup gates', () => {
     assert.deepEqual(flags, {
         usePreviewAnchorFastCleanup: false,
         useKnown48EdgeCleanup: true,
+        useStrongUndersizedAdaptiveCleanup: false,
+        useV2SmallEdgeCleanup: false
+    });
+});
+
+test('createRepairCleanupFlags should expose marked undersized adaptive cleanup', () => {
+    const flags = createRepairCleanupFlags({
+        selectedTrial: {
+            config: { logoSize: 40, marginRight: 82, marginBottom: 82 },
+            provenance: { adaptive: true, strongUndersizedMatch: true }
+        },
+        position: { width: 40 },
+        source: 'adaptive+gain+fine-alpha'
+    });
+
+    assert.deepEqual(flags, {
+        usePreviewAnchorFastCleanup: false,
+        useKnown48EdgeCleanup: true,
+        useStrongUndersizedAdaptiveCleanup: true,
         useV2SmallEdgeCleanup: false
     });
 });

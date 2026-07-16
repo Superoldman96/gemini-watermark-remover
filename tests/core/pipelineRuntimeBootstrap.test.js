@@ -57,6 +57,7 @@ test('createAcceptedPipelineRuntimeBootstrap should seed runtime state, pass sta
 
     assert.equal(bootstrap.cleanupFlags.usePreviewAnchorFastCleanup, true);
     assert.equal(bootstrap.cleanupFlags.useKnown48EdgeCleanup, false);
+    assert.equal(bootstrap.cleanupFlags.useStrongUndersizedAdaptiveCleanup, false);
     assert.equal(bootstrap.cleanupFlags.useV2SmallEdgeCleanup, false);
     assert.equal(bootstrap.passState.passCount, 1);
     assert.equal(bootstrap.passState.attemptedPassCount, 1);
