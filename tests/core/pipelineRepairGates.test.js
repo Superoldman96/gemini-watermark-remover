@@ -40,6 +40,44 @@ test('known 48 cleanup gate should accept canonical and large-margin anchors', (
     }), true);
 });
 
+test('known 48 cleanup gate should accept only marked undersized adaptive matches', () => {
+    const selectedTrial = {
+        config: { logoSize: 40, marginRight: 82, marginBottom: 82 },
+        provenance: { adaptive: true, strongUndersizedMatch: true }
+    };
+
+    assert.equal(shouldUseKnown48EdgeCleanup({
+        selectedTrial,
+        position: { width: 40 },
+        source: 'adaptive+gain+fine-alpha'
+    }), true);
+
+    for (const rejected of [
+        {
+            selectedTrial: { ...selectedTrial, provenance: { adaptive: true } },
+            position: { width: 40 },
+            source: 'adaptive'
+        },
+        { selectedTrial, position: { width: 43 }, source: 'adaptive' },
+        { selectedTrial, position: { width: 40 }, source: 'standard' }
+    ]) {
+        assert.equal(shouldUseKnown48EdgeCleanup(rejected), false);
+    }
+});
+
+test('known 48 cleanup gate should preserve the marked adaptive refinement band', () => {
+    for (const width of [38, 39, 40, 41, 42]) {
+        assert.equal(shouldUseKnown48EdgeCleanup({
+            selectedTrial: {
+                config: { logoSize: width, marginRight: 82, marginBottom: 82 },
+                provenance: { adaptive: true, strongUndersizedMatch: true }
+            },
+            position: { width },
+            source: 'adaptive+gain+fine-alpha'
+        }), true, `width=${width}`);
+    }
+});
+
 test('v2 small cleanup gate should require v2 catalog provenance', () => {
     const selectedTrial = {
         config: { logoSize: 36, marginRight: 64, marginBottom: 64, alphaVariant: 'v2' },

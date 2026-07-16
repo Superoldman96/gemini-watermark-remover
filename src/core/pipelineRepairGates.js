@@ -42,13 +42,23 @@ export function shouldUseKnown48EdgeCleanup({
     known48EdgeCleanupMaxSize = DEFAULT_KNOWN_48_EDGE_CLEANUP_MAX_SIZE
 } = {}) {
     if (selectedTrial?.provenance?.previewAnchor === true) return false;
-    if (position?.width < known48EdgeCleanupMinSize || position?.width > known48EdgeCleanupMaxSize) return false;
-    if (!isKnown48AnchorConfig(selectedTrial?.config, {
+    const sourceText = String(source || '');
+    const isStrongUndersizedAdaptive =
+        selectedTrial?.provenance?.adaptive === true &&
+        selectedTrial?.provenance?.strongUndersizedMatch === true &&
+        position?.width >= 38 &&
+        position?.width <= 42 &&
+        sourceText.startsWith('adaptive');
+    if (
+        !isStrongUndersizedAdaptive &&
+        (position?.width < known48EdgeCleanupMinSize || position?.width > known48EdgeCleanupMaxSize)
+    ) return false;
+    if (!isStrongUndersizedAdaptive && !isKnown48AnchorConfig(selectedTrial?.config, {
         known48EdgeCleanupMinSize,
         known48EdgeCleanupMaxSize
     })) return false;
 
-    const sourceText = String(source || '');
+    if (isStrongUndersizedAdaptive) return true;
     return sourceText === 'standard' ||
         sourceText.startsWith('standard+gain') ||
         sourceText.includes('catalog') ||
