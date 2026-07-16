@@ -4,6 +4,9 @@
  * Runtime code uses these directly to avoid image decoding dependencies.
  */
 
+import { EMBEDDED_OUTLINE_LIGHT_D4_INT16_BASE64 } from './embeddedOutlineAlphaMap.js';
+import { EMBEDDED_OUTLINE_DARK_D4_INT16_BASE64 } from './embeddedDarkOutlineAlphaMap.js';
+
 const EMBEDDED_ALPHA_MAP_LENGTHS = {
     '36-v2': 36 * 36,
     48: 48 * 48,
@@ -19,6 +22,33 @@ const EMBEDDED_ALPHA_MAP_BASE64 = {
 };
 
 const decodedAlphaMaps = new Map();
+
+function decodeD4SignedAlphaMap(base64, size) {
+    const bytes = decodeBase64(base64);
+    const half = size / 2;
+    const fundamentalLength = half * (half + 1) / 2;
+    if (bytes.length !== fundamentalLength * 2) {
+        throw new Error(`Invalid D4 signed alpha payload length: ${bytes.length}`);
+    }
+
+    const fundamental = new Int16Array(fundamentalLength);
+    for (let index = 0; index < fundamentalLength; index++) {
+        const unsigned = bytes[index * 2] | (bytes[index * 2 + 1] << 8);
+        fundamental[index] = unsigned >= 0x8000 ? unsigned - 0x10000 : unsigned;
+    }
+
+    const alphaMap = new Float32Array(size * size);
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            let a = Math.min(x, size - 1 - x);
+            let b = Math.min(y, size - 1 - y);
+            if (a > b) [a, b] = [b, a];
+            const fundamentalIndex = a * half - a * (a - 1) / 2 + (b - a);
+            alphaMap[y * size + x] = fundamental[fundamentalIndex] / 32767;
+        }
+    }
+    return alphaMap;
+}
 
 function decodeBase64(base64) {
     if (typeof Buffer !== 'undefined') {
@@ -39,6 +69,24 @@ function decodeBase64(base64) {
 
 export function getEmbeddedAlphaMap(size) {
     const knownSize = String(size);
+    if (knownSize === '96-outline-dark') {
+        if (!decodedAlphaMaps.has(knownSize)) {
+            decodedAlphaMaps.set(
+                knownSize,
+                decodeD4SignedAlphaMap(EMBEDDED_OUTLINE_DARK_D4_INT16_BASE64, 96)
+            );
+        }
+        return new Float32Array(decodedAlphaMaps.get(knownSize));
+    }
+    if (knownSize === '96-outline-light') {
+        if (!decodedAlphaMaps.has(knownSize)) {
+            decodedAlphaMaps.set(
+                knownSize,
+                decodeD4SignedAlphaMap(EMBEDDED_OUTLINE_LIGHT_D4_INT16_BASE64, 96)
+            );
+        }
+        return new Float32Array(decodedAlphaMaps.get(knownSize));
+    }
     if (!(knownSize in EMBEDDED_ALPHA_MAP_BASE64)) {
         return null;
     }

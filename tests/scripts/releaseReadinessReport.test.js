@@ -8,10 +8,44 @@ import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 
 import {
     createReleaseReadinessReport,
+    isCurrentImageCapabilityReady,
     renderReleaseReadinessMarkdown,
+    summarizeImageReleaseEvidenceLane,
     summarizeReleaseInvariantChecks,
     summarizeReleaseReadinessGate
 } from '../../scripts/create-release-readiness-report.js';
+
+test('image-defaults scope depends on pinned image evidence instead of historical research lanes', () => {
+    const lanes = [
+        { id: 'release-claims', releaseEligible: true },
+        { id: 'userscript-artifact', releaseEligible: true },
+        { id: 'release-version-docs', releaseEligible: true },
+        { id: 'image-release-evidence', releaseEligible: true },
+        { id: 'video-production-defaults', releaseEligible: true },
+        { id: 'image-visible-residual', releaseEligible: false },
+        { id: 'image-v2-36', releaseEligible: false },
+        { id: 'allenk-reference', releaseEligible: false },
+        { id: 'allenk-v2-comparison', releaseEligible: false }
+    ];
+
+    assert.equal(isCurrentImageCapabilityReady(lanes, 'image-defaults'), true);
+    assert.equal(isCurrentImageCapabilityReady(lanes, null), false);
+});
+
+test('summarizeImageReleaseEvidenceLane exposes current and stale gate results', () => {
+    assert.deepEqual(summarizeImageReleaseEvidenceLane({ ok: true, blockers: [] }, 'evidence.json'), {
+        id: 'image-release-evidence',
+        title: 'Image release evidence',
+        status: 'current',
+        releaseEligible: true,
+        blockers: [],
+        evidence: { path: 'evidence.json', gateOk: true }
+    });
+    assert.deepEqual(
+        summarizeImageReleaseEvidenceLane({ ok: false, blockers: ['image-evidence-source-hash-mismatch:x'] }, 'bad.json').blockers,
+        ['image-evidence-source-hash-mismatch:x']
+    );
+});
 
 async function writeJson(filePath, value) {
     await mkdir(path.dirname(filePath), { recursive: true });
@@ -41,8 +75,11 @@ async function writeFailingGitShim(tempDir) {
 function releaseGateScripts(overrides = {}) {
     return {
         'compare:allenk-v2': 'node scripts/create-allenk-v2-comparison-report.js',
+        'release:image-validation': 'node scripts/run-image-release-validation.js',
+        'release:image-evidence': 'node scripts/create-image-release-evidence.js',
+        'release:image-quality-gate': 'node scripts/check-image-release-evidence.js',
         'release:readiness': 'node scripts/create-release-readiness-report.js',
-        'release:quality-gate': 'pnpm compare:allenk-v2 -- --fail-on-incomplete && pnpm release:readiness -- --fail-on-not-ready',
+        'release:quality-gate': 'pnpm release:image-quality-gate && pnpm compare:allenk-v2 && pnpm release:readiness -- --scope image-defaults --fail-on-not-ready',
         'release:goal-audit': 'node scripts/create-release-goal-audit-report.js',
         'release:ci-check': 'node scripts/check-github-ci.js --workflow ci.yml --commit HEAD --fail-closed',
         'release:preflight': 'pnpm build && pnpm test && pnpm package:extension && pnpm release:quality-gate && pnpm release:goal-audit -- --fail-on-incomplete && pnpm release:ci-check',
@@ -230,12 +267,12 @@ async function writeReleaseVersionDocs(tempDir, version = '1.2.3') {
     await writeFile(changelogZh, `# 更新日志\n\n## ${version} - 2026-06-11\n\n- Ready.\n`, 'utf8');
     await writeFile(
         releaseEn,
-        'Update CHANGELOG.md and CHANGELOG_zh.md. Run pnpm release:preflight, which runs pnpm package:extension, pnpm release:quality-gate, pnpm release:goal-audit -- --fail-on-incomplete, and pnpm release:ci-check; the quality gate runs the internal comparison gate --fail-on-incomplete before pnpm release:readiness -- --fail-on-not-ready, then the CI check verifies GitHub Actions CI for the current HEAD before upload latest-extension.json. Follow the Release Claim Matrix: publish allowed, allowed-scoped, and allowed-safety-only rows; keep review-only, experiment-only, and forbidden rows out of public capability claims.\n',
+        'Update CHANGELOG.md and CHANGELOG_zh.md. Run pnpm release:preflight, which runs pnpm package:extension, pnpm release:quality-gate, pnpm release:goal-audit -- --fail-on-incomplete, and pnpm release:ci-check; the quality gate runs pnpm release:image-quality-gate and the internal comparison gate before pnpm release:readiness -- --scope image-defaults --fail-on-not-ready, then the CI check verifies GitHub Actions CI for the current HEAD before upload latest-extension.json. Follow the Release Claim Matrix: publish allowed, allowed-scoped, and allowed-safety-only rows; keep review-only, experiment-only, and forbidden rows out of public capability claims.\n',
         'utf8'
     );
     await writeFile(
         releaseZh,
-        '更新 CHANGELOG.md 和 CHANGELOG_zh.md。运行 pnpm release:preflight；它会运行 pnpm package:extension、pnpm release:quality-gate、pnpm release:goal-audit -- --fail-on-incomplete 和 pnpm release:ci-check；该 quality gate 会先运行内部对比 gate --fail-on-incomplete，再运行 pnpm release:readiness -- --fail-on-not-ready；随后 CI 检查会确认当前 HEAD 的 GitHub Actions CI 已通过，再上传 latest-extension.json。遵循 Release Claim Matrix：只发布 allowed、allowed-scoped 和 allowed-safety-only 行；review-only、experiment-only 和 forbidden 行不能写成公开能力声明。\n',
+        '更新 CHANGELOG.md 和 CHANGELOG_zh.md。运行 pnpm release:preflight；它会运行 pnpm package:extension、pnpm release:quality-gate、pnpm release:goal-audit -- --fail-on-incomplete 和 pnpm release:ci-check；该 quality gate 会先运行 pnpm release:image-quality-gate 和内部对比 gate，再运行 pnpm release:readiness -- --scope image-defaults --fail-on-not-ready；随后 CI 检查会确认当前 HEAD 的 GitHub Actions CI 已通过，再上传 latest-extension.json。遵循 Release Claim Matrix：只发布 allowed、allowed-scoped 和 allowed-safety-only 行；review-only、experiment-only 和 forbidden 行不能写成公开能力声明。\n',
         'utf8'
     );
     return {
@@ -452,7 +489,10 @@ test('createReleaseReadinessReport should allow scoped image RC while blocking v
     await mkdir(allenkRepo, { recursive: true });
 
     const report = await createReleaseReadinessReport({
+        scope: 'image-defaults',
         inputs: {
+            imageReleaseEvidence: path.join(tempDir, 'image-evidence.json'),
+            imageEvidenceGate: { ok: true, blockers: [] },
             packageJson: path.join(tempDir, 'package.json'),
             latestExtension: latestExtensionPath,
             userscript,
@@ -482,6 +522,8 @@ test('createReleaseReadinessReport should allow scoped image RC while blocking v
     assert.deepEqual(report.overall.releaseInvariantChecks.missingBlockedClaims, []);
     assert.deepEqual(report.overall.releaseInvariantChecks.missingReleaseClaimGuards, []);
     assert.ok(report.overall.blockedClaims.includes('video-v2-allenk-parity'));
+    assert.equal(report.releaseScope, 'image-defaults');
+    assert.equal(report.lanes.find((lane) => lane.id === 'image-release-evidence').releaseEligible, true);
 
     const visibleLane = report.lanes.find((lane) => lane.id === 'image-visible-residual');
     assert.equal(visibleLane.releaseEligible, true);

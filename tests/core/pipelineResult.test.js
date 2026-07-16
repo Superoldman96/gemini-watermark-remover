@@ -71,7 +71,14 @@ test('createAcceptedPipelineResult should preserve accepted result shape', () =>
         alphaAdjustmentStages: [{ stage: 'fine-alpha' }],
         alphaTrialEvents: [{ stage: 'fine-alpha', decision: 'accept' }],
         alphaMapSource: 'catalog',
-        selectionDebug: { selected: true }
+        selectionDebug: { selected: true },
+        bestEffort: true,
+        retryRecommended: false,
+        qualityStatus: 'clean',
+        selectionConfidence: 0.9,
+        selectedCandidate: { id: 'candidate-1', family: 'standard', rank: 1 },
+        qualitySignals: { residualVisible: false, damageWarning: false },
+        candidateSummaries: [{ id: 'candidate-1', rank: 1, valid: true }]
     });
 
     assert.equal(result.imageData, imageData);
@@ -89,6 +96,11 @@ test('createAcceptedPipelineResult should preserve accepted result shape', () =>
     });
     assert.equal(result.meta.source, 'standard+fine-alpha');
     assert.equal(result.meta.alphaGain, 0.85);
+    assert.equal(result.meta.bestEffort, true);
+    assert.equal(result.meta.retryRecommended, false);
+    assert.equal(result.meta.qualityStatus, 'clean');
+    assert.equal(result.meta.selectionConfidence, 0.9);
+    assert.equal(result.meta.candidateSummaries.length, 1);
     assert.deepEqual(result.meta.selectionDebug, { selected: true });
     assert.equal(result.meta.decisionPath.decision, 'accept');
     assert.equal(result.meta.decisionPath.alphaTrial.strategy, 'fine-alpha');

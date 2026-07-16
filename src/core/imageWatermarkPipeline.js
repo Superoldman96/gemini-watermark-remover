@@ -1,13 +1,59 @@
-import { createPipelineTraceRecorder } from './pipelineTrace.js';
 import { createInitialPipelineContext } from './pipelineInitialContext.js';
-import { selectInitialWatermarkCandidate } from './pipelineInitialSelection.js';
+import { collectInitialWatermarkCandidates } from './pipelineInitialSelection.js';
+import { runCandidateHypothesis } from './pipelineCandidateRunner.js';
+import {
+    createCandidateQualitySignals,
+    createCandidateSummaries,
+    rankCompletedCandidates
+} from './pipelineCandidateQuality.js';
+import { attachTopNSelectionMeta } from './pipelineMeta.js';
 import { createRejectedPipelineResult } from './pipelineResult.js';
-import { createAcceptedPipelineState } from './pipelineState.js';
-import { createAcceptedPipelineRuntimeBootstrap } from './pipelineRuntimeBootstrap.js';
 import { runAcceptedAlphaRepairPipeline } from './pipelineAcceptedExecutor.js';
-import { createAcceptedPipelineExecutorRequest } from './pipelineAcceptedExecutorRequest.js';
-import { createAcceptedPipelineFinalizationRequest } from './pipelineAcceptedFinalizationRequest.js';
 import { createAcceptedPipelineFinalResult } from './pipelineFinalization.js';
+
+function createSelectedCandidate(best) {
+    const hypothesis = best?.hypothesis ?? {};
+    const trial = hypothesis.trial ?? {};
+    const meta = best?.result?.meta ?? {};
+    return {
+        id: hypothesis.id ?? null,
+        family: hypothesis.family ?? null,
+        rank: best?.rank ?? 1,
+        source: meta.source ?? trial.source ?? null,
+        config: meta.config ?? hypothesis.config ?? trial.config ?? null,
+        position: meta.position ?? hypothesis.position ?? trial.position ?? null,
+        alphaProfile: hypothesis.alphaProfile ?? null,
+        polarity: hypothesis.polarity ?? null
+    };
+}
+
+function createRuntimeFailureResult({
+    createRejectedResult,
+    originalImageData,
+    debugTimings
+}) {
+    return createRejectedResult({
+        imageData: originalImageData,
+        debugTimings,
+        reason: 'candidate-execution-failed',
+        source: 'top-n-runtime-failure',
+        decisionTier: 'runtime-failure',
+        selectionDebug: null
+    });
+}
+
+function notifyCandidateCompleted({ options, candidate, debugTimings }) {
+    if (typeof options?.onCandidateCompleted !== 'function') return;
+
+    try {
+        options.onCandidateCompleted(candidate);
+    } catch {
+        if (debugTimings) {
+            debugTimings.candidateDiagnosticErrorCount =
+                (debugTimings.candidateDiagnosticErrorCount ?? 0) + 1;
+        }
+    }
+}
 
 export function runImageWatermarkPipeline({
     imageData,
@@ -20,6 +66,12 @@ export function runImageWatermarkPipeline({
     cleanupConfig,
     visualPostProcessingEnabled = false,
     selectCandidate,
+    collectCandidates = collectInitialWatermarkCandidates,
+    runCandidate = runCandidateHypothesis,
+    measureCandidate = createCandidateQualitySignals,
+    rankCandidates = rankCompletedCandidates,
+    createSummaries = createCandidateSummaries,
+    attachSelectionMeta = attachTopNSelectionMeta,
     runAcceptedPipeline = runAcceptedAlphaRepairPipeline,
     createRejectedResult = createRejectedPipelineResult,
     createAcceptedFinalResult = createAcceptedPipelineFinalResult
@@ -43,10 +95,9 @@ export function runImageWatermarkPipeline({
         alphaGainCandidates,
         alphaPriorityGains
     });
-    const pipelineTraceRecorder = createPipelineTraceRecorder();
 
-    const initialSelectionStartedAt = nowMs();
-    const initialSelection = selectInitialWatermarkCandidate({
+    const discoveryStartedAt = nowMs();
+    const collection = collectCandidates({
         originalImageData,
         config: resolvedConfig,
         position,
@@ -55,73 +106,119 @@ export function runImageWatermarkPipeline({
         alpha96Variants: options.alpha96Variants ?? null,
         getAlphaMap: options.getAlphaMap,
         allowAdaptiveSearch,
-        aggressiveLocatedFallback: options.aggressiveLocatedFallback,
         alphaGainCandidates: resolvedAlphaGainCandidates,
         alphaPriorityGains: resolvedAlphaPriorityGains,
         selectCandidate
     });
+    const hypotheses = Array.isArray(collection?.hypotheses)
+        ? collection.hypotheses.slice(0, 5)
+        : [];
     if (debugTimingsEnabled) {
-        debugTimings.initialSelectionMs = nowMs() - initialSelectionStartedAt;
+        debugTimings.candidateDiscoveryMs = nowMs() - discoveryStartedAt;
+        debugTimings.initialSelectionMs = debugTimings.candidateDiscoveryMs;
+        debugTimings.generatedCandidateCount = hypotheses.length;
+        debugTimings.earlyExitReason = null;
     }
 
-    if (!initialSelection.selectedTrial) {
+    const completed = [];
+    const failures = [];
+    const executionStartedAt = nowMs();
+    for (const hypothesis of hypotheses) {
+        try {
+            const completedCandidate = runCandidate({
+                hypothesis,
+                originalImageData,
+                resolvedConfig,
+                options,
+                nowMs,
+                alpha96,
+                debugTimingsEnabled,
+                visualPostProcessingEnabled,
+                cleanupConfig,
+                createAcceptedPipelineDependencies,
+                runAcceptedPipeline,
+                createAcceptedFinalResult
+            });
+            if (!completedCandidate?.result?.imageData) {
+                throw new Error(`Candidate ${hypothesis.id ?? 'unknown'} returned no pixels`);
+            }
+            const candidate = {
+                ...completedCandidate,
+                hypothesis,
+                qualitySignals: measureCandidate({
+                    originalImageData,
+                    candidateImageData: completedCandidate.result.imageData,
+                    hypothesis
+                })
+            };
+            completed.push(candidate);
+            notifyCandidateCompleted({ options, candidate, debugTimings });
+        } catch (error) {
+            failures.push({ hypothesis, error });
+        }
+    }
+    if (debugTimingsEnabled) {
+        debugTimings.candidateExecutionMs = nowMs() - executionStartedAt;
+        debugTimings.executedCandidateCount = hypotheses.length;
+        debugTimings.completedCandidateCount = completed.length;
+        debugTimings.failedCandidateCount = failures.length;
+    }
+
+    if (completed.length === 0) {
         if (debugTimingsEnabled) {
+            debugTimings.candidateRankingMs = 0;
             debugTimings.totalMs = nowMs() - totalStartedAt;
         }
-        return createRejectedResult({
-            imageData: originalImageData,
-            debugTimings,
-            reason: 'no-watermark-detected',
-            adaptiveConfidence: initialSelection.adaptiveConfidence,
-            originalSpatialScore: initialSelection.standardSpatialScore,
-            originalGradientScore: initialSelection.standardGradientScore,
-            source: 'skipped',
-            decisionTier: initialSelection.decisionTier ?? 'insufficient',
-            selectionDebug: null
+        return createRuntimeFailureResult({
+            createRejectedResult,
+            originalImageData,
+            debugTimings
         });
     }
 
-    const selectedTrial = initialSelection.selectedTrial;
-    const acceptedPipelineState = createAcceptedPipelineState({ initialSelection });
-    const runtimeBootstrap = createAcceptedPipelineRuntimeBootstrap({
-        nowMs,
-        acceptedPipelineState,
-        selectedTrial,
-        debugTimings,
-        debugTimingsEnabled,
-        cleanupConfig
-    });
-    const acceptedPipelineDependencies = createAcceptedPipelineDependencies();
-    const acceptedPipelineRun = runAcceptedPipeline(createAcceptedPipelineExecutorRequest({
-        nowMs,
-        options,
-        totalStartedAt,
-        runtimeBootstrap,
-        pipelineTraceRecorder,
-        originalImageData,
-        alpha96,
-        debugTimings,
-        debugTimingsEnabled,
-        visualPostProcessingEnabled,
-        templateWarp: acceptedPipelineState.templateWarp,
-        subpixelShift: acceptedPipelineState.subpixelShift,
-        acceptedPipelineDependencies
-    }));
+    const rankingStartedAt = nowMs();
+    const ranked = rankCandidates(completed);
+    const best = ranked[0];
+    if (!best?.result?.imageData) {
+        failures.push({
+            hypothesis: null,
+            error: new Error('Candidate ranking returned no valid result')
+        });
+        if (debugTimingsEnabled) {
+            debugTimings.candidateRankingMs = nowMs() - rankingStartedAt;
+            debugTimings.failedCandidateCount = failures.length;
+            debugTimings.totalMs = nowMs() - totalStartedAt;
+        }
+        return createRuntimeFailureResult({
+            createRejectedResult,
+            originalImageData,
+            debugTimings
+        });
+    }
 
-    return createAcceptedFinalResult(createAcceptedPipelineFinalizationRequest({
-        acceptedPipelineRun,
-        pipelineTraceRecorder,
-        resultContext: {
-            debugTimings,
-            selectedTrial,
-            selectionSource: initialSelection.source,
-            adaptiveConfidence: acceptedPipelineState.adaptiveConfidence,
-            templateWarp: acceptedPipelineState.templateWarp,
-            decisionTier: acceptedPipelineState.decisionTier,
-            subpixelShift: acceptedPipelineRun.subpixelShift
-        },
-        originalImageData,
-        initialSelection,
-        resolvedConfig
-    }));
+    const candidateSummaries = createSummaries(ranked, failures);
+    const meta = attachSelectionMeta(best.result.meta, {
+        qualityStatus: best.qualitySignals?.qualityStatus,
+        selectionConfidence: best.selectionConfidence,
+        selectedCandidate: createSelectedCandidate(best),
+        qualitySignals: best.qualitySignals,
+        candidateSummaries
+    });
+    if (debugTimingsEnabled) {
+        debugTimings.candidateRankingMs = nowMs() - rankingStartedAt;
+        debugTimings.totalMs = nowMs() - totalStartedAt;
+    }
+
+    const combinedDebugTimings = debugTimingsEnabled
+        ? {
+            ...(best.result.debugTimings ?? {}),
+            ...debugTimings
+        }
+        : best.result.debugTimings;
+
+    return {
+        ...best.result,
+        meta,
+        debugTimings: combinedDebugTimings
+    };
 }

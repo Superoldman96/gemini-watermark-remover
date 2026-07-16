@@ -29,7 +29,7 @@ The reviewed pairs do not share one selected family, discovery role, source stri
 
 - exact same structured anchor (`x`, `y`, `width`, `height`)
 - exact `96x96` size
-- strictly lower continuous imperfection score
+- continuous imperfection score at least `0.15` lower
 - evidence loss no more than `0.05` above the incumbent
 - damage loss no more than `0.05` above the incumbent
 
@@ -39,7 +39,7 @@ One visually better alternative has a higher aggregate residual loss than the in
 
 ### 1. Post-ranking same-anchor promotion (selected)
 
-Run the existing ranking unchanged, then inspect only the current winner and eligible exact-96 same-anchor alternatives. Promote the best eligible lower-imperfection alternative to rank 1 and preserve the relative order of all remaining candidates.
+Run the existing ranking unchanged, then inspect only the current winner and eligible exact-96 same-anchor alternatives. Promote the best eligible alternative whose imperfection score improves by at least `0.15` to rank 1 and preserve the relative order of all remaining candidates.
 
 Advantages:
 
@@ -66,12 +66,12 @@ The existing ranking first produces its normal ordered candidate list. Let its f
 2. The incumbent imperfection severity is exactly `high`.
 3. The incumbent imperfection score, evidence loss, and damage loss are finite numbers.
 4. The alternative has the exact same structured `x`, `y`, `width`, and `height`.
-5. The alternative imperfection score is finite and strictly lower than the incumbent score.
+5. The alternative imperfection score is finite and no greater than `incumbent.imperfectionScore - 0.15`.
 6. The alternative evidence loss is finite and no greater than `incumbent.evidenceLoss + 0.05`.
 7. The alternative damage loss is finite and no greater than `incumbent.damageLoss + 0.05`.
 8. The alternative does not meet the existing catastrophic-block condition.
 
-No minimum imperfection-score reduction is required. The reviewed tie cases are accepted as valid switches because none introduced a visible regression, and a minimum delta did not separate ties from clear improvements.
+A minimum `0.15` imperfection-score reduction is required. The initially broader rule incorrectly promoted the `20260617.png` alpha-`1.15` candidate after only a `0.1188` reduction, producing a visible dark star. All 10 reviewed exact-96 alternatives remain eligible: the smallest reviewed reduction is approximately `0.1595`.
 
 The rule does not require the alternative to have a different family, alpha profile, source, or polarity.
 

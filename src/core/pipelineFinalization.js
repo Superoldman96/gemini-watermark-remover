@@ -1,10 +1,13 @@
 import { assessWatermarkResidualVisibility } from './restorationMetrics.js';
 import { createSelectionDebugSummary } from './selectionDebug.js';
 import { calculateWatermarkPosition } from './watermarkConfig.js';
-import { shouldFailClosedForVisibleResidualUnsafeDamage } from './candidateEvaluation.js';
+import {
+    shouldFailClosedForUnsafeWeakShiftedCandidate,
+    shouldFailClosedForVisibleResidualUnsafeDamage
+} from './candidateEvaluation.js';
 import {
     createAcceptedPipelineResultFromState,
-    createUnsafeVisibleResidualPipelineResultFromState
+    createFailClosedPipelineResultFromState
 } from './pipelineResult.js';
 
 export function createAcceptedPipelineFinalResult({
@@ -14,7 +17,8 @@ export function createAcceptedPipelineFinalResult({
     resultContext = {},
     originalImageData = null,
     initialSelection = null,
-    resolvedConfig = null
+    resolvedConfig = null,
+    allowFailClosed = true
 } = {}) {
     const residualVisibility = assessWatermarkResidualVisibility({
         imageData: pipelineState.finalImageData,
@@ -36,11 +40,11 @@ export function createAcceptedPipelineFinalResult({
         initialPosition
     });
 
-    if (shouldFailClosedForVisibleResidualUnsafeDamage({
+    if (allowFailClosed && shouldFailClosedForVisibleResidualUnsafeDamage({
         selectedTrial: resultContext.selectedTrial,
         residualVisibility
     })) {
-        return createUnsafeVisibleResidualPipelineResultFromState({
+        return createFailClosedPipelineResultFromState({
             originalImageData,
             pipelineState,
             passState,
@@ -51,6 +55,25 @@ export function createAcceptedPipelineFinalResult({
             },
             residualVisibility,
             selectionDebug
+        });
+    }
+
+    if (allowFailClosed && shouldFailClosedForUnsafeWeakShiftedCandidate({
+        selectedTrial: resultContext.selectedTrial
+    })) {
+        return createFailClosedPipelineResultFromState({
+            originalImageData,
+            pipelineState,
+            passState,
+            traceState,
+            resultContext: {
+                ...resultContext,
+                selectionSource
+            },
+            residualVisibility,
+            selectionDebug,
+            reason: 'unsafe-weak-shifted-candidate',
+            evidenceClass: 'unsafe-weak-shifted-candidate'
         });
     }
 

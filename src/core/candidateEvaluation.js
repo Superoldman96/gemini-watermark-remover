@@ -11,6 +11,8 @@ const DEFAULT_ALPHA_NEW_MARGIN_MAX_SPATIAL_RESIDUAL = 0.18;
 const DEFAULT_ALPHA_NEW_MARGIN_MAX_GRADIENT_RESIDUAL = 0.08;
 const DEFAULT_ALPHA_NEW_MARGIN_MIN_IMPROVEMENT = 0.12;
 const DEFAULT_ALPHA_NEW_MARGIN_DAMAGE_ADVANTAGE = 0.03;
+const UNSAFE_SHIFTED_MIN_STRONG_SPATIAL_EVIDENCE = 0.4;
+const UNSAFE_SHIFTED_MIN_STRONG_GRADIENT_EVIDENCE = 0.08;
 
 function numberOr(value, fallback = 0) {
     const number = Number(value);
@@ -74,6 +76,19 @@ export function shouldFailClosedForVisibleResidualUnsafeDamage({
     return isNewMarginAlphaVariantTrial(selectedTrial) &&
         residualVisibility?.visible === true &&
         selectedTrial?.damage?.safe === false;
+}
+
+export function shouldFailClosedForUnsafeWeakShiftedCandidate({
+    selectedTrial = null
+} = {}) {
+    const provenance = getProvenance(selectedTrial);
+    const isShiftedFallback = provenance.localShift === true || provenance.sizeJitter === true;
+    const damageSafe = selectedTrial?.damage?.safe ?? selectedTrial?.evaluation?.damage?.safe;
+
+    if (!isShiftedFallback || damageSafe !== false) return false;
+
+    return numberOr(selectedTrial?.originalSpatialScore) < UNSAFE_SHIFTED_MIN_STRONG_SPATIAL_EVIDENCE &&
+        numberOr(selectedTrial?.originalGradientScore) < UNSAFE_SHIFTED_MIN_STRONG_GRADIENT_EVIDENCE;
 }
 
 function firstFalseGate(gates) {

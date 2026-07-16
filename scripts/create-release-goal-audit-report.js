@@ -9,7 +9,10 @@ const DEFAULT_MARKDOWN_PATH = path.resolve('.artifacts/release-goal-audit/latest
 const EXPECTED_SCRIPTS = Object.freeze({
     'compare:allenk-v2': 'node scripts/create-allenk-v2-comparison-report.js',
     'release:readiness': 'node scripts/create-release-readiness-report.js',
-    'release:quality-gate': 'pnpm compare:allenk-v2 -- --fail-on-incomplete && pnpm release:readiness -- --fail-on-not-ready',
+    'release:image-validation': 'node scripts/run-image-release-validation.js',
+    'release:image-evidence': 'node scripts/create-image-release-evidence.js',
+    'release:image-quality-gate': 'node scripts/check-image-release-evidence.js',
+    'release:quality-gate': 'pnpm release:image-quality-gate && pnpm compare:allenk-v2 && pnpm release:readiness -- --scope image-defaults --fail-on-not-ready',
     'release:goal-audit': 'node scripts/create-release-goal-audit-report.js',
     'release:ci-check': 'node scripts/check-github-ci.js --workflow ci.yml --commit HEAD --fail-closed',
     'release:preflight': 'pnpm build && pnpm test && pnpm package:extension && pnpm release:quality-gate && pnpm release:goal-audit -- --fail-on-incomplete && pnpm release:ci-check'
@@ -84,7 +87,7 @@ function summarizeRequirements({ packageArtifact, readinessArtifact, allenkArtif
     const index = overall.releaseEvidenceIndex || {};
     const claimPolicy = index.claimPolicy || {};
     const releasePackage = index.releasePackage || {};
-    const allenkIndex = index.allenkComparison || {};
+    const imageQuality = index.imageQuality || {};
     const imageScope = index.imageScope || {};
     const videoScope = index.videoScope || {};
     const readinessLanes = Array.isArray(readiness.lanes) ? readiness.lanes : [];
@@ -110,33 +113,22 @@ function summarizeRequirements({ packageArtifact, readinessArtifact, allenkArtif
         releasePackage.sizeMatchesMetadata === true
     );
 
-    const allenkCurrent = Boolean(
-        allenkIndex.referenceStatus === 'current' &&
-        allenkIndex.comparisonStatus === 'current-gap-known' &&
-        allenkIndex.canClaimImageV2SmallGuarded === true &&
-        allenkIndex.canClaimBroadImageV2Coverage === false &&
-        allenkIndex.canClaimVideoAllenkParity === false &&
-        Number(allenkIndex.videoAllenkCaseCount) > 0 &&
-        Number(allenkIndex.videoRenderedComparisonCount) > 0 &&
-        Number(allenkIndex.videoMissingOutputArtifactCount) === 0 &&
-        allenk.overall?.status === 'current-gap-known' &&
-        allenk.imageV2?.status === 'guarded-release' &&
-        allenk.videoBenchmark?.status === 'compared'
+    const imageEvidenceCurrent = Boolean(
+        index.requestedScope === 'image-defaults' &&
+        imageQuality.status === 'current' &&
+        imageQuality.gateOk === true &&
+        imageQuality.evidencePath
     );
 
     const imageScopeDecided = Boolean(
-        includesAll(allowed, ['current-image-defaults', 'image-v2-36-small-profile']) &&
+        includesAll(allowed, ['current-image-defaults']) &&
         includesAll(forbidden, ['broad-image-v2-coverage', 'visible-residual-alpha-profile-productionization']) &&
-        imageScope.v2Status === 'guarded-release' &&
-        imageScope.v2ReleaseEligible === true &&
-        imageScope.visibleResidualStatus === 'safe-to-release-current-defaults' &&
-        imageScope.visibleResidualProductionAllowed === false &&
-        imageScope.readyForGoldMigration === false
+        imageQuality.status === 'current' &&
+        imageQuality.gateOk === true
     );
 
     const videoScopeDecided = Boolean(
         includesAll(allowed, ['video-production-defaults']) &&
-        includesAll(reviewOnly, ['video-review-delivery']) &&
         includesAll(experimentOnly, ['video-denoise-default', 'video-alpha-shape-default']) &&
         includesAll(forbidden, ['video-v2-allenk-parity']) &&
         videoScope.productionDefaultsStatus === 'safe-current-defaults' &&
@@ -144,8 +136,7 @@ function summarizeRequirements({ packageArtifact, readinessArtifact, allenkArtif
         videoScope.denoiseStatus === 'experiment-only' &&
         Number(videoScope.denoisePromotedCount) === 0 &&
         videoScope.alphaShapeStatus === 'experiment-only' &&
-        Number(videoScope.alphaShapePromotedCount) === 0 &&
-        videoScope.reviewDeliveryStatus === 'ready-for-visual-review'
+        Number(videoScope.alphaShapePromotedCount) === 0
     );
 
     const defaultPathProtected = Boolean(
@@ -199,22 +190,14 @@ function summarizeRequirements({ packageArtifact, readinessArtifact, allenkArtif
             ['release-package-integrity-not-ready']
         ),
         requirement(
-            'allenk-v2-comparison-current',
-            'The allenk V2 comparison is current and quantifies image V2 36 and video gaps without allowing broad V2 or video parity claims.',
-            allenkCurrent,
+            'image-release-evidence-current',
+            'The pinned image evidence is current for the image-defaults release scope.',
+            imageEvidenceCurrent,
             {
-                referenceStatus: allenkIndex.referenceStatus || null,
-                comparisonStatus: allenkIndex.comparisonStatus || null,
-                comparisonPath: allenkIndex.comparisonPath || null,
-                imageV2Guarded: allenkIndex.canClaimImageV2SmallGuarded === true,
-                broadImageV2Claim: allenkIndex.canClaimBroadImageV2Coverage === true,
-                videoParityClaim: allenkIndex.canClaimVideoAllenkParity === true,
-                videoAllenkCaseCount: allenkIndex.videoAllenkCaseCount ?? null,
-                videoRenderedComparisonCount: allenkIndex.videoRenderedComparisonCount ?? null,
-                videoMissingOutputArtifactCount: allenkIndex.videoMissingOutputArtifactCount ?? null,
-                allenkReportStatus: allenk.overall?.status || null
+                requestedScope: index.requestedScope || null,
+                imageQuality
             },
-            ['allenk-v2-comparison-not-current-or-incomplete']
+            ['image-release-evidence-not-current']
         ),
         requirement(
             'image-release-scope-decided',

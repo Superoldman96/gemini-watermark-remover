@@ -24,7 +24,9 @@ export function removeWatermarkFromImageDataSync(imageData, options = {}) {
     const alpha48 = options.alpha48 || getEmbeddedAlphaMap(48);
     const alpha96 = options.alpha96 || getEmbeddedAlphaMap(96);
     const alpha96Variants = options.alpha96Variants || {
-        '20260520': getEmbeddedAlphaMap('96-20260520')
+        '20260520': getEmbeddedAlphaMap('96-20260520'),
+        'outline-light': getEmbeddedAlphaMap('96-outline-light'),
+        'outline-dark': getEmbeddedAlphaMap('96-outline-dark')
     };
 
     return processWatermarkImageData(imageData, {
@@ -43,7 +45,9 @@ export async function removeWatermarkFromImageData(imageData, options = {}) {
     const alpha48 = await engine.getAlphaMap(48);
     const alpha96 = await engine.getAlphaMap(96);
     const alpha96Variants = options.alpha96Variants || {
-        '20260520': await engine.getAlphaMap('96-20260520')
+        '20260520': await engine.getAlphaMap('96-20260520'),
+        'outline-light': await engine.getAlphaMap('96-outline-light'),
+        'outline-dark': await engine.getAlphaMap('96-outline-dark')
     };
 
     return processWatermarkImageData(imageData, {

@@ -68,21 +68,22 @@ test('processWatermarkImageData should not attempt extra passes when the first p
     assert.equal(result.meta.passes.length, 1, `passes=${JSON.stringify(result.meta.passes)}`);
 });
 
-test('processWatermarkImageData should interpolate adaptive alpha maps when getAlphaMap is omitted', () => {
+test('processWatermarkImageData should return best effort when getAlphaMap is omitted', () => {
     const alpha96 = createSyntheticAlphaMap(96);
     const alpha48 = interpolateAlphaMap(alpha96, 96, 48);
     const imageData = createPatternImageData(1008, 1071);
+    const original = new Uint8ClampedArray(imageData.data);
 
     const result = processWatermarkImageData(imageData, {
         alpha48,
         alpha96
     });
 
-    assert.equal(result.meta.applied, false);
-    assert.equal(result.meta.skipReason, 'no-watermark-detected');
-    assert.equal(result.meta.decisionPath?.decision, 'reject');
-    assert.equal(result.meta.decisionPath?.blockedGate, 'no-watermark-detected');
-    assert.equal(result.meta.decisionPath?.evaluation?.decision, 'reject');
+    assert.equal(result.meta.applied, true);
+    assert.equal(result.meta.bestEffort, true);
+    assert.equal(result.meta.retryRecommended, false);
+    assert.notEqual(result.meta.qualityStatus, null);
+    assert.notDeepEqual(result.imageData.data, original);
 });
 
 test('processWatermarkImageData should not use template warp in fixed-core mode', () => {
@@ -281,12 +282,13 @@ test('processWatermarkImageData should remove strong white watermarks on near-bl
     );
 });
 
-test('processWatermarkImageData should skip off-catalog adaptive-only positions in fixed-core mode', () => {
+test('processWatermarkImageData should best-effort process off-catalog positions when fallback is disabled', () => {
     const alpha96 = createSyntheticAlphaMap(96);
     const alpha48 = interpolateAlphaMap(alpha96, 96, 48);
     const imageData = createPatternImageData(320, 320);
     const truePosition = { x: 320 - 36 - 48, y: 320 - 20 - 48, width: 48, height: 48 };
     applySyntheticWatermark(imageData, alpha48, truePosition, 1);
+    const original = new Uint8ClampedArray(imageData.data);
 
     const result = processWatermarkImageData(imageData, {
         alpha48,
@@ -294,8 +296,11 @@ test('processWatermarkImageData should skip off-catalog adaptive-only positions 
         aggressiveLocatedFallback: false
     });
 
-    assert.equal(result.meta.applied, false);
-    assert.equal(result.meta.source, 'skipped');
+    assert.equal(result.meta.applied, true);
+    assert.equal(result.meta.bestEffort, true);
+    assert.equal(result.meta.retryRecommended, false);
+    assert.notEqual(result.meta.qualityStatus, null);
+    assert.notDeepEqual(result.imageData.data, original);
 });
 
 test('processWatermarkImageData should process strong located off-catalog watermarks by default', () => {
@@ -311,10 +316,9 @@ test('processWatermarkImageData should process strong located off-catalog waterm
     });
 
     assert.equal(result.meta.applied, true, `skipReason=${result.meta.skipReason}`);
-    assert.ok(
-        String(result.meta.source).includes('aggressive-located'),
-        `source=${result.meta.source}`
-    );
+    assert.ok(String(result.meta.source).includes('adaptive'), `source=${result.meta.source}`);
+    assert.equal(result.meta.bestEffort, true);
+    assert.equal(result.meta.retryRecommended, false);
     assert.ok(
         Math.abs(result.meta.position.x - truePosition.x) <= 2,
         `x=${result.meta.position.x}`
@@ -327,6 +331,32 @@ test('processWatermarkImageData should process strong located off-catalog waterm
         Math.abs(result.meta.detection.processedSpatialScore) < 0.12,
         `processedSpatial=${result.meta.detection.processedSpatialScore}`
     );
+});
+
+test('processWatermarkImageData should expose damage signals instead of failing closed on polarity overshoot', async () => {
+    const alpha48 = getEmbeddedAlphaMap(48);
+    const alpha96 = getEmbeddedAlphaMap(96);
+    const imageData = await decodeImageDataInNode(path.resolve(
+        'tests/fixtures/issue104-aggressive-polarity-overshoot.png'
+    ));
+    const original = new Uint8ClampedArray(imageData.data);
+
+    const result = processWatermarkImageData(imageData, {
+        alpha48,
+        alpha96,
+        alpha96Variants: {
+            '20260520': getEmbeddedAlphaMap('96-20260520'),
+            'outline-light': getEmbeddedAlphaMap('96-outline-light'),
+            'outline-dark': getEmbeddedAlphaMap('96-outline-dark')
+        }
+    });
+
+    assert.equal(result.meta.applied, true);
+    assert.notDeepEqual(result.imageData.data, original);
+    assert.equal(result.meta.bestEffort, true);
+    assert.equal(result.meta.retryRecommended, false);
+    assert.notEqual(result.meta.qualityStatus, null);
+    assert.ok(result.meta.qualitySignals);
 });
 
 test('processWatermarkImageData should process dark-polarity 96px 192px-margin watermarks', () => {
@@ -1049,7 +1079,7 @@ test('processWatermarkImageData should recover preview-sized bottom-right waterm
     );
 });
 
-test('processWatermarkImageData should skip repeated preview watermark layers in fixed-core mode', () => {
+test('processWatermarkImageData should best-effort process repeated preview watermark layers in fixed-core mode', () => {
     const alpha96 = createSyntheticAlphaMap(96);
     const alpha48 = interpolateAlphaMap(alpha96, 96, 48);
     const alpha34 = interpolateAlphaMap(alpha96, 96, 34);
@@ -1061,6 +1091,7 @@ test('processWatermarkImageData should skip repeated preview watermark layers in
         height: 34
     };
     applySyntheticWatermark(imageData, alpha34, truePosition, 2);
+    const original = new Uint8ClampedArray(imageData.data);
 
     const result = processWatermarkImageData(imageData, {
         alpha48,
@@ -1070,13 +1101,11 @@ test('processWatermarkImageData should skip repeated preview watermark layers in
         getAlphaMap: (size) => interpolateAlphaMap(alpha96, 96, size)
     });
 
-    assert.equal(result.meta.applied, false);
-    assert.equal(result.meta.passCount, 0, `passCount=${result.meta.passCount}`);
-    assert.equal(result.meta.attemptedPassCount, 0, `attemptedPassCount=${result.meta.attemptedPassCount}`);
-    assert.ok(
-        !String(result.meta.source).includes('+multipass'),
-        `expected preview-anchor removal to skip multipass, source=${result.meta.source}`
-    );
+    assert.equal(result.meta.applied, true);
+    assert.equal(result.meta.bestEffort, true);
+    assert.equal(result.meta.retryRecommended, false);
+    assert.notEqual(result.meta.qualityStatus, null);
+    assert.notDeepEqual(result.imageData.data, original);
 });
 
 test('processWatermarkImageData should expose fixed-core candidate selection debug summary in meta', () => {
@@ -1397,25 +1426,22 @@ test('processWatermarkImageData should keep strong 20260608 catalog evidence ahe
         { x: 576, y: 1313, width: 48, height: 48 },
         `expected 48px large-margin catalog anchor, got ${JSON.stringify(result.meta.position)} source=${result.meta.source}`
     );
-    assert.equal(result.meta.alphaGain, 0.95);
-    assert.equal(result.meta.alphaAdjustmentStages?.[0]?.stage, 'dark-catalog-fine-alpha');
-    assert.equal(result.meta.alphaAdjustmentStages?.[0]?.fromAlphaGain, 1);
-    assert.equal(result.meta.alphaAdjustmentStages?.[0]?.toAlphaGain, 0.95);
-    assert.equal(result.meta.alphaAdjustmentStages?.[0]?.alphaStrategy, 'dark-catalog-fine-alpha');
+    assert.equal(result.meta.alphaGain, 0.85);
+    assert.equal(result.meta.alphaAdjustmentStages?.[0]?.stage, 'recalibration');
+    assert.equal(result.meta.alphaAdjustmentStages?.[0]?.fromAlphaGain, 0.25);
+    assert.equal(result.meta.alphaAdjustmentStages?.[0]?.toAlphaGain, 0.85);
     assert.equal(
         result.meta.decisionPath?.alphaTrial?.strategy,
-        'dark-catalog-fine-alpha',
+        'located-aggressive-alpha',
         `decisionPath=${JSON.stringify(result.meta.decisionPath)}`
     );
-    assert.equal(result.meta.decisionPath?.alphaTrial?.migrationStage, 'phase2-alpha-trial');
+    assert.equal(result.meta.decisionPath?.alphaTrial?.migrationStage, 'phase1-adapter');
     assert.ok(
         result.meta.decisionPath?.alphaTrial?.acceptedStrategies?.some((event) => (
-            event.strategy === 'dark-catalog-fine-alpha' &&
-            event.stage === 'dark-catalog-fine-alpha' &&
-            event.fromAlphaGain === 1 &&
-            event.toAlphaGain === 0.95
+            event.strategy === 'located-aggressive-alpha' &&
+            event.alphaGain === 0.85
         )),
-        `expected accepted dark catalog fine-alpha event, decisionPath=${JSON.stringify(result.meta.decisionPath)}`
+        `expected accepted located-aggressive alpha event, decisionPath=${JSON.stringify(result.meta.decisionPath)}`
     );
     assert.ok(
         String(result.meta.source).includes('catalog'),

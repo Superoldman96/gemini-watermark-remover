@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.30 - 2026-07-16
+
+### Watermark Removal
+
+- Improved exact-96px Gemini watermark selection by preferring a materially cleaner same-anchor Top-N result only when watermark evidence and content-damage signals remain within validated bounds.
+- Added outline-aware alpha profiles and conservative contour repair for newer light- and dark-outline watermark variants.
+- Kept the canonical restoration when an alternative offers only a marginal score change, preventing stronger alpha choices from reintroducing a visible dark star.
+
+### Quality and Diagnostics
+
+- Added bottom-level imperfection signals for visible residuals and possible content damage so clients can expose best-effort quality without encouraging meaningless retries.
+- Added same-anchor candidate review and reporting tools together with regression coverage for candidate ordering, outline variants, deterministic selection, and release metadata.
+- Re-verified the final production path across the expanded recent-sample set, the contrast set, the full automated suite, and a fresh production build without new out-of-scope candidate changes.
+
 ## 1.0.29 - 2026-07-07
 
 ### SDK / CLI

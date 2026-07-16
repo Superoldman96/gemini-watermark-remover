@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+    attachTopNSelectionMeta,
     createAcceptedWatermarkMeta,
     createRejectedWatermarkMeta,
     createWatermarkMeta
@@ -113,4 +114,77 @@ test('createRejectedWatermarkMeta should attach rejected decision path', () => {
     assert.equal(meta.decisionPath.decision, 'reject');
     assert.equal(meta.decisionPath.blockedGate, 'no-watermark-detected');
     assert.equal(meta.decisionPath.evaluation.decision, 'reject');
+});
+
+test('createAcceptedWatermarkMeta should normalize best-effort selection fields', () => {
+    const imageData = { width: 1, height: 1, data: new Uint8ClampedArray(4) };
+    const alphaMap = new Float32Array([0.5]);
+    const meta = createAcceptedWatermarkMeta({
+        selectedTrial: {
+            source: 'standard',
+            config: { logoSize: 48, marginRight: 32, marginBottom: 32 },
+            position: { x: 80, y: 80, width: 48, height: 48 }
+        },
+        source: 'standard+fine-alpha',
+        config: { logoSize: 48, marginRight: 32, marginBottom: 32 },
+        position: { x: 80, y: 80, width: 48, height: 48 },
+        bestEffort: true,
+        retryRecommended: false,
+        qualityStatus: 'visible-residual',
+        selectionConfidence: 1.5,
+        selectedCandidate: {
+            id: 'candidate-2',
+            family: 'geometry',
+            rank: 1,
+            imageData,
+            alphaMap
+        },
+        qualitySignals: { residualVisible: true, damageWarning: false },
+        candidateSummaries: [{
+            id: 'candidate-2',
+            family: 'geometry',
+            rank: 1,
+            valid: true,
+            finalScore: 0.2,
+            imageData,
+            alphaMap
+        }]
+    });
+
+    assert.equal(meta.bestEffort, true);
+    assert.equal(meta.retryRecommended, false);
+    assert.equal(meta.qualityStatus, 'visible-residual');
+    assert.equal(meta.selectionConfidence, 1);
+    assert.equal(meta.selectedCandidate.id, 'candidate-2');
+    assert.equal('imageData' in meta.selectedCandidate, false);
+    assert.equal('alphaMap' in meta.selectedCandidate, false);
+    assert.equal(meta.candidateSummaries.length, 1);
+    assert.equal('imageData' in meta.candidateSummaries[0], false);
+    assert.equal('alphaMap' in meta.candidateSummaries[0], false);
+});
+
+test('attachTopNSelectionMeta should preserve existing accepted metadata', () => {
+    const existing = createWatermarkMeta({
+        position: { x: 1, y: 2, width: 48, height: 48 },
+        config: { logoSize: 48, marginRight: 32, marginBottom: 32 },
+        processedSpatialScore: 0.1,
+        processedGradientScore: 0.2,
+        source: 'standard+gain',
+        decisionPath: { decision: 'accept' }
+    });
+
+    const attached = attachTopNSelectionMeta(existing, {
+        qualityStatus: 'clean',
+        selectionConfidence: 0.8,
+        selectedCandidate: { id: 'candidate-1', family: 'standard', rank: 1 },
+        qualitySignals: { residualVisible: false, damageWarning: false },
+        candidateSummaries: [{ id: 'candidate-1', rank: 1, valid: true }]
+    });
+
+    assert.notEqual(attached, existing);
+    assert.deepEqual(attached.detection, existing.detection);
+    assert.deepEqual(attached.decisionPath, existing.decisionPath);
+    assert.equal(attached.bestEffort, true);
+    assert.equal(attached.retryRecommended, false);
+    assert.equal(attached.qualityStatus, 'clean');
 });

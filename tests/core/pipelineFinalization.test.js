@@ -125,3 +125,110 @@ test('createAcceptedPipelineFinalResult should fail closed for unsafe visible re
     assert.equal(result.meta.detection.residualVisibility.visible, true);
     assert.equal(result.meta.decisionPath.evaluation.blockedGate, 'visible-residual-unsafe-damage');
 });
+
+test('createAcceptedPipelineFinalResult should fail closed for unsafe weak shifted fallback candidates', () => {
+    const originalImageData = createPatternImageData(192, 192);
+    const finalImageData = createPatternImageData(192, 192);
+    const alphaMap = createSyntheticAlphaMap(48);
+    const position = { x: 48, y: 52, width: 48, height: 48 };
+    const config = { logoSize: 48, marginRight: 96, marginBottom: 96 };
+
+    const result = createAcceptedPipelineFinalResult({
+        pipelineState: {
+            finalImageData,
+            alphaMap,
+            position,
+            config,
+            alphaGain: 1,
+            alphaMapSource: 'catalog',
+            originalSpatialScore: 0.284,
+            originalGradientScore: 0.004,
+            finalProcessedSpatialScore: 0.016,
+            finalProcessedGradientScore: 0.075,
+            suppressionGain: 0.268,
+            source: 'standard+catalog+local+edge-cleanup'
+        },
+        passState: {
+            passCount: 1,
+            attemptedPassCount: 1,
+            passStopReason: 'known-48-edge-cleanup',
+            passes: [{ index: 1 }]
+        },
+        traceState: {
+            alphaAdjustmentStages: [{ stage: 'known-48-edge-cleanup' }],
+            alphaTrialEvents: []
+        },
+        resultContext: {
+            debugTimings: { totalMs: 10 },
+            selectedTrial: {
+                config,
+                position,
+                provenance: { catalogVariant: true, localShift: true },
+                originalSpatialScore: 0.284,
+                originalGradientScore: 0.004,
+                damage: { safe: false, reason: 'texture' }
+            },
+            adaptiveConfidence: null,
+            templateWarp: null,
+            decisionTier: 'direct-match',
+            subpixelShift: null
+        },
+        initialSelection: { source: 'standard' },
+        originalImageData,
+        resolvedConfig: config
+    });
+
+    assert.equal(result.imageData, originalImageData);
+    assert.equal(result.meta.applied, false);
+    assert.equal(result.meta.skipReason, 'unsafe-weak-shifted-candidate');
+    assert.equal(result.meta.decisionPath.evaluation.blockedGate, 'unsafe-weak-shifted-candidate');
+});
+
+test('createAcceptedPipelineFinalResult should preserve imperfect pixels for Top-N arbitration', () => {
+    const originalImageData = createPatternImageData(64, 64);
+    const finalImageData = createPatternImageData(64, 64);
+    const alphaMap = createSyntheticAlphaMap(8);
+    const position = { x: 24, y: 24, width: 8, height: 8 };
+    const config = {
+        logoSize: 96,
+        marginRight: 192,
+        marginBottom: 192,
+        alphaVariant: '20260520'
+    };
+    applySyntheticWatermark(finalImageData, alphaMap, position);
+
+    const result = createAcceptedPipelineFinalResult({
+        pipelineState: {
+            finalImageData,
+            alphaMap,
+            position,
+            config,
+            alphaGain: 1,
+            originalSpatialScore: 0.9,
+            originalGradientScore: 0.8,
+            finalProcessedSpatialScore: -0.8,
+            finalProcessedGradientScore: 0.6,
+            suppressionGain: 1.7,
+            source: 'adaptive+aggressive-located'
+        },
+        passState: {},
+        traceState: {},
+        resultContext: {
+            selectedTrial: {
+                config,
+                position,
+                damage: { safe: false, reason: 'texture' }
+            },
+            selectionSource: 'adaptive+aggressive-located',
+            decisionTier: 'direct-match'
+        },
+        initialSelection: { source: 'adaptive+aggressive-located' },
+        originalImageData,
+        resolvedConfig: config,
+        allowFailClosed: false
+    });
+
+    assert.equal(result.imageData, finalImageData);
+    assert.equal(result.meta.applied, true);
+    assert.equal(result.meta.source, 'adaptive+aggressive-located');
+});

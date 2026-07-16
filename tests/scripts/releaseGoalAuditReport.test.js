@@ -19,8 +19,11 @@ async function writeJson(filePath, value) {
 function releaseScripts() {
     return {
         'compare:allenk-v2': 'node scripts/create-allenk-v2-comparison-report.js',
+        'release:image-validation': 'node scripts/run-image-release-validation.js',
+        'release:image-evidence': 'node scripts/create-image-release-evidence.js',
+        'release:image-quality-gate': 'node scripts/check-image-release-evidence.js',
         'release:readiness': 'node scripts/create-release-readiness-report.js',
-        'release:quality-gate': 'pnpm compare:allenk-v2 -- --fail-on-incomplete && pnpm release:readiness -- --fail-on-not-ready',
+        'release:quality-gate': 'pnpm release:image-quality-gate && pnpm compare:allenk-v2 && pnpm release:readiness -- --scope image-defaults --fail-on-not-ready',
         'release:goal-audit': 'node scripts/create-release-goal-audit-report.js',
         'release:ci-check': 'node scripts/check-github-ci.js --workflow ci.yml --commit HEAD --fail-closed',
         'release:preflight': 'pnpm build && pnpm test && pnpm package:extension && pnpm release:quality-gate && pnpm release:goal-audit -- --fail-on-incomplete && pnpm release:ci-check'
@@ -58,6 +61,13 @@ function readinessReport() {
             releaseClaimMatrix: capabilityRows(),
             releaseEvidenceIndexIntegrity: { ok: true, blockers: [] },
             releaseEvidenceIndex: {
+                requestedScope: 'image-defaults',
+                imageQuality: {
+                    status: 'current',
+                    gateOk: true,
+                    evidencePath: 'release/evidence/v1.2.3-image-quality.json',
+                    blockers: []
+                },
                 releasePackage: {
                     version: '1.2.3',
                     zipPath: 'release/gemini-watermark-remover-extension-v1.2.3.zip',
@@ -154,13 +164,20 @@ test('createReleaseGoalAuditReport should mark scoped RC objective achieved with
     const markdown = renderReleaseGoalAuditMarkdown(report);
     assert.match(markdown, /Release Goal Audit/);
     assert.match(markdown, /Goal achieved: yes/);
-    assert.match(markdown, /allenk-v2-comparison-current \| satisfied/);
+    assert.match(markdown, /image-release-evidence-current \| satisfied/);
 });
 
-test('release goal audit CLI should fail when allenk evidence is incomplete', async () => {
+test('release goal audit CLI should fail when image evidence is stale', async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), 'gwr-release-goal-audit-fail-'));
     const packageJson = await writeJson(path.join(tempDir, 'package.json'), { scripts: releaseScripts() });
-    const readiness = await writeJson(path.join(tempDir, 'readiness.json'), readinessReport());
+    const readinessValue = readinessReport();
+    readinessValue.overall.releaseEvidenceIndex.imageQuality = {
+        status: 'blocked',
+        gateOk: false,
+        evidencePath: 'release/evidence/v1.2.3-image-quality.json',
+        blockers: ['image-evidence-source-hash-mismatch:x']
+    };
+    const readiness = await writeJson(path.join(tempDir, 'readiness.json'), readinessValue);
     const allenk = await writeJson(path.join(tempDir, 'allenk.json'), allenkReport({
         overall: { status: 'missing-evidence' }
     }));
@@ -193,5 +210,5 @@ test('release goal audit CLI should fail when allenk evidence is incomplete', as
 
     const failedReport = JSON.parse(await readFile(output, 'utf8'));
     assert.equal(failedReport.goalAchieved, false);
-    assert.ok(failedReport.unsatisfiedRequirementIds.includes('allenk-v2-comparison-current'));
+    assert.ok(failedReport.unsatisfiedRequirementIds.includes('image-release-evidence-current'));
 });

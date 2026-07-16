@@ -2,24 +2,26 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Promote the visually cleaner exact-`96x96` same-anchor Top-N candidate when its imperfection score is lower and its evidence and damage losses stay within the validated `+0.05` tolerances.
+**Goal:** Promote the visually cleaner exact-`96x96` same-anchor Top-N candidate when its imperfection score improves by at least `0.15` and its evidence and damage losses stay within the validated `+0.05` tolerances.
 
 **Architecture:** Keep the existing candidate scoring and base sort unchanged. Add one pure post-ranking list transformation in `pipelineCandidateQuality.js`, then calculate rank and selection confidence from the transformed order. The rule is exact-96-only, requires a high-severity incumbent, rejects catastrophic candidates, and falls back to the untouched base order whenever required signals are absent or outside tolerance.
 
 **Tech Stack:** JavaScript ES modules, Node.js `node:test`, pnpm, Sharp, the current 36-image contrast set, and the current 424-image `2026-07-15` sample report.
 
+**Execution Result (2026-07-16):** Complete. The final rule changes exactly the 10 reviewed exact-96 selections (`7` visually better, `3` ties), preserves every position and quality status, passes the 36-image contrast set and final 424-image batch with zero errors/catastrophic blocks/retries, preserves the `20260617.png` standard-alpha regression baseline, passes all `1344` repository tests (`28` fixture-dependent skips), and builds the production artifact successfully.
+
 ## Global Constraints
 
 - Apply only when the incumbent structured position is exactly `96x96`; `48x48`, `94x94`, non-square, and every other size must remain unchanged.
 - Require the incumbent imperfection severity to be exactly `high`.
-- Require a strictly lower finite alternative imperfection score.
+- Require a finite alternative imperfection score at least `0.15` lower than the incumbent.
 - Allow alternative evidence loss up to and including `incumbent + 0.05`.
 - Allow alternative damage loss up to and including `incumbent + 0.05`.
 - Do not add a residual-loss eligibility tolerance; residual loss is only the second deterministic tie-breaker.
 - Do not change candidate discovery, Top-N count, alpha maps, alpha gains, geometry search, cleanup algorithms, global final-score weights, discovery penalties, or catastrophic-block protection.
 - Do not add dependencies or start local development services.
 - Use `pnpm`, never `npm` or `npx`.
-- Treat `D:/Project/sample-files` as read-only.
+- Treat the configured sample root as read-only.
 - Write generated validation evidence only under `.artifacts/same-anchor-96-imperfection-preference` and the existing validation output roots.
 - `src/core/pipelineCandidateQuality.js` and `tests/core/pipelineCandidateQuality.test.js` are pre-existing untracked/overlapping worktree files. Do not stage or commit them without explicit user approval; use scoped diffs and tests instead.
 
@@ -310,6 +312,7 @@ Add after `hasSameCandidateAnchor` in `src/core/pipelineCandidateQuality.js`:
 
 ```js
 const SAME_ANCHOR_96_SIZE = 96;
+const SAME_ANCHOR_96_IMPERFECTION_IMPROVEMENT = 0.15;
 const SAME_ANCHOR_96_EVIDENCE_TOLERANCE = 0.05;
 const SAME_ANCHOR_96_DAMAGE_TOLERANCE = 0.05;
 
@@ -325,7 +328,8 @@ function isEligibleSameAnchor96Alternative(incumbent, alternative) {
     return hasSameCandidateAnchor(incumbent, alternative) &&
         !hasCatastrophicBlock(alternativeSignals) &&
         Number.isFinite(alternativeScore) &&
-        alternativeScore < incumbentScore &&
+        alternativeScore <=
+            incumbentScore - SAME_ANCHOR_96_IMPERFECTION_IMPROVEMENT &&
         Number.isFinite(alternativeSignals.evidenceLoss) &&
         alternativeSignals.evidenceLoss <=
             incumbentSignals.evidenceLoss + SAME_ANCHOR_96_EVIDENCE_TOLERANCE &&
@@ -476,8 +480,8 @@ Expected: all tests pass, including existing clean dominance, deterministic rank
 Run:
 
 ```powershell
-git -c safe.directory=D:/Project/gemini-watermark-remover diff --check -- src/core/pipelineCandidateQuality.js tests/core/pipelineCandidateQuality.test.js
-git -c safe.directory=D:/Project/gemini-watermark-remover diff -- src/core/pipelineCandidateQuality.js tests/core/pipelineCandidateQuality.test.js
+git -c safe.directory=$PWD diff --check -- src/core/pipelineCandidateQuality.js tests/core/pipelineCandidateQuality.test.js
+git -c safe.directory=$PWD diff -- src/core/pipelineCandidateQuality.js tests/core/pipelineCandidateQuality.test.js
 ```
 
 Expected: the new diff is limited to one pure preference helper, one integration call after the existing base sort, test helpers, and focused tests. Do not stage or commit these overlapping files.
@@ -697,7 +701,7 @@ Run:
 ```powershell
 $env:GIT_CONFIG_COUNT='1'
 $env:GIT_CONFIG_KEY_0='safe.directory'
-$env:GIT_CONFIG_VALUE_0='D:/Project/gemini-watermark-remover'
+$env:GIT_CONFIG_VALUE_0=($PWD.Path -replace '\\','/')
 pnpm test
 ```
 
@@ -710,7 +714,7 @@ Run:
 ```powershell
 $env:GIT_CONFIG_COUNT='1'
 $env:GIT_CONFIG_KEY_0='safe.directory'
-$env:GIT_CONFIG_VALUE_0='D:/Project/gemini-watermark-remover'
+$env:GIT_CONFIG_VALUE_0=($PWD.Path -replace '\\','/')
 pnpm build
 ```
 
@@ -723,7 +727,7 @@ Run:
 ```powershell
 node --check src/core/pipelineCandidateQuality.js
 node --check tests/core/pipelineCandidateQuality.test.js
-git -c safe.directory=D:/Project/gemini-watermark-remover diff --check -- src/core/pipelineCandidateQuality.js tests/core/pipelineCandidateQuality.test.js
+git -c safe.directory=$PWD diff --check -- src/core/pipelineCandidateQuality.js tests/core/pipelineCandidateQuality.test.js
 ```
 
 Expected: all commands exit `0`.

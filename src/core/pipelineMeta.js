@@ -33,6 +33,49 @@ function normalizeMetaConfig(config) {
     };
 }
 
+const QUALITY_STATUSES = new Set([
+    'clean',
+    'visible-residual',
+    'possible-content-damage',
+    'mixed'
+]);
+
+function normalizeQualityStatus(status) {
+    return QUALITY_STATUSES.has(status) ? status : null;
+}
+
+function normalizeSelectionConfidence(value) {
+    return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : null;
+}
+
+function normalizeSelectedCandidate(candidate) {
+    if (!candidate || typeof candidate !== 'object') return null;
+    return {
+        id: candidate.id ?? null,
+        family: candidate.family ?? null,
+        rank: Number.isFinite(candidate.rank) ? candidate.rank : null,
+        source: candidate.source ?? null,
+        config: normalizeMetaConfig(candidate.config),
+        position: normalizeMetaPosition(candidate.position),
+        alphaProfile: candidate.alphaProfile ?? null,
+        polarity: candidate.polarity ?? null
+    };
+}
+
+function normalizeCandidateSummary(summary) {
+    if (!summary || typeof summary !== 'object') return null;
+    return {
+        id: summary.id ?? null,
+        family: summary.family ?? null,
+        rank: Number.isFinite(summary.rank) ? summary.rank : null,
+        valid: summary.valid === true,
+        finalScore: Number.isFinite(summary.finalScore) ? summary.finalScore : null,
+        qualityStatus: normalizeQualityStatus(summary.qualityStatus),
+        qualitySignals: summary.qualitySignals ?? null,
+        error: typeof summary.error === 'string' ? summary.error : null
+    };
+}
+
 export function createWatermarkMeta({
     position = null,
     config = null,
@@ -57,7 +100,14 @@ export function createWatermarkMeta({
     selectionDebug = null,
     alphaAdjustmentStages = null,
     alphaMapSource = null,
-    decisionPath = null
+    decisionPath = null,
+    bestEffort = false,
+    retryRecommended = null,
+    qualityStatus = null,
+    selectionConfidence = null,
+    selectedCandidate = null,
+    qualitySignals = null,
+    candidateSummaries = null
 } = {}) {
     const normalizedPosition = normalizeMetaPosition(position);
 
@@ -90,7 +140,16 @@ export function createWatermarkMeta({
         selectionDebug,
         alphaAdjustmentStages: Array.isArray(alphaAdjustmentStages) ? alphaAdjustmentStages : null,
         alphaMapSource: alphaMapSource ?? null,
-        decisionPath: decisionPath ?? null
+        decisionPath: decisionPath ?? null,
+        bestEffort: bestEffort === true,
+        retryRecommended: typeof retryRecommended === 'boolean' ? retryRecommended : null,
+        qualityStatus: normalizeQualityStatus(qualityStatus),
+        selectionConfidence: normalizeSelectionConfidence(selectionConfidence),
+        selectedCandidate: normalizeSelectedCandidate(selectedCandidate),
+        qualitySignals: qualitySignals ?? null,
+        candidateSummaries: Array.isArray(candidateSummaries)
+            ? candidateSummaries.map(normalizeCandidateSummary).filter(Boolean)
+            : null
     };
 }
 
@@ -118,7 +177,14 @@ export function createAcceptedWatermarkMeta({
     selectionDebug = null,
     alphaAdjustmentStages = null,
     alphaTrialEvents = null,
-    alphaMapSource = null
+    alphaMapSource = null,
+    bestEffort = false,
+    retryRecommended = null,
+    qualityStatus = null,
+    selectionConfidence = null,
+    selectedCandidate = null,
+    qualitySignals = null,
+    candidateSummaries = null
 } = {}) {
     const decisionPath = createAcceptedDecisionPath({
         selectedTrial,
@@ -164,8 +230,47 @@ export function createAcceptedWatermarkMeta({
         alphaAdjustmentStages,
         alphaMapSource,
         selectionDebug,
-        decisionPath
+        decisionPath,
+        bestEffort,
+        retryRecommended,
+        qualityStatus,
+        selectionConfidence,
+        selectedCandidate,
+        qualitySignals,
+        candidateSummaries
     });
+}
+
+export function attachTopNSelectionMeta(meta, {
+    qualityStatus,
+    selectionConfidence,
+    selectedCandidate,
+    qualitySignals,
+    candidateSummaries
+} = {}) {
+    const normalized = createWatermarkMeta({
+        applied: true,
+        bestEffort: true,
+        retryRecommended: false,
+        qualityStatus,
+        selectionConfidence,
+        selectedCandidate,
+        qualitySignals,
+        candidateSummaries
+    });
+
+    return {
+        ...meta,
+        applied: true,
+        skipReason: null,
+        bestEffort: normalized.bestEffort,
+        retryRecommended: normalized.retryRecommended,
+        qualityStatus: normalized.qualityStatus,
+        selectionConfidence: normalized.selectionConfidence,
+        selectedCandidate: normalized.selectedCandidate,
+        qualitySignals: normalized.qualitySignals,
+        candidateSummaries: normalized.candidateSummaries
+    };
 }
 
 export function createRejectedWatermarkMeta({
@@ -201,8 +306,10 @@ export function createRejectedWatermarkMeta({
     });
 }
 
-export function createUnsafeVisibleResidualWatermarkMeta({
+export function createFailClosedWatermarkMeta({
     selectedTrial = null,
+    reason = 'visible-residual-unsafe-damage',
+    evidenceClass = 'unsafe-visible-residual',
     position = null,
     config = null,
     adaptiveConfidence = null,
@@ -225,7 +332,6 @@ export function createUnsafeVisibleResidualWatermarkMeta({
     alphaAdjustmentStages = null,
     alphaMapSource = null
 } = {}) {
-    const reason = 'visible-residual-unsafe-damage';
     const resolvedPosition = position ?? selectedTrial?.position ?? null;
     const resolvedConfig = config ?? selectedTrial?.config ?? null;
     const detectionCandidate = createDetectionCandidateFromSelectedTrial({
@@ -257,7 +363,7 @@ export function createUnsafeVisibleResidualWatermarkMeta({
             decision: 'reject',
             blockedGate: reason,
             riskFlags: [],
-            evidenceClass: 'unsafe-visible-residual',
+            evidenceClass,
             explanation: reason
         }
     };
@@ -288,4 +394,8 @@ export function createUnsafeVisibleResidualWatermarkMeta({
         selectionDebug,
         decisionPath
     });
+}
+
+export function createUnsafeVisibleResidualWatermarkMeta(options = {}) {
+    return createFailClosedWatermarkMeta(options);
 }

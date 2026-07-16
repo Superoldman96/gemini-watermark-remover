@@ -112,6 +112,21 @@ completed candidates → 现有 quality signals → 现有 discovery penalty/fin
 
 本设计不隐藏或重写质量信号。若没有满足严格条件的 clean 候选，继续选择现有 top-1 并暴露 `visible-residual`、`possible-content-damage` 或 `mixed`。这保证用户仍能看到处理瑕疵，而不是被动跳过或无意义重试。
 
+### 定点视觉验收后的修订
+
+6 张三联图（原图、当前输出、候选输出）表明，候选输出在 1、2、3、6 上减轻了深色星形残影，5 基本持平；4 将较强的深色实体/梯度残影转换为较弱但仍可见的亮色边缘残影。现有 `qualityStatus` 只有超过硬可见阈值才标记 residual，因此第 4 张虽然整体残留降低，却被粗略标成 `clean`，无法表达残留类型转换。
+
+因此增加一个不参与 fail-closed、retry 或是否处理决策的底层 `imperfections` 信号：
+
+- 沿用现有 spatial `0.18`、gradient `0.22`、positive halo luminance `6` 三个硬可见阈值；
+- 每项输出原始值、硬阈值和 `value / threshold` 比率；
+- 最大比率形成连续 `score`；
+- `score >= 1` 为 `high`，`0.5 <= score < 1` 为 `moderate`，`0 < score < 0.5` 为 `low`，其余为 `none`；
+- `types` 列出达到 `0.5` 预警比率的 spatial、gradient、positive-halo 类型；
+- `detected` 只表示达到中等瑕疵预警，不阻止最佳候选输出。
+
+这一修订保留最大化处理和 top-N 选优，同时把未达到旧硬阈值的亮边、暗洞或结构残留如实交给调用层。样本验收不再把 `qualityStatus === clean` 等同于完全无瑕疵，而是同时比较 `imperfections.score/severity/types` 和三联图。
+
 ## 非目标
 
 - 不全局调低 discovery penalty。

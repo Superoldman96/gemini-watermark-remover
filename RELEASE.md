@@ -18,6 +18,8 @@ pnpm install
 pnpm release:preflight
 ```
 
+For an image-scoped release, refresh evidence with `pnpm release:image-validation` and `pnpm release:image-evidence`. The quality gate runs `pnpm release:image-quality-gate`, records the internal comparison gate as a claim audit, and then runs `pnpm release:readiness -- --scope image-defaults --fail-on-not-ready`.
+
 Expected result:
 
 - all tests pass
@@ -26,9 +28,9 @@ Expected result:
 - package/sdk entrypoints in `package.json` still match the published source layout
 - generated userscript metadata uses the current `package.json` version
 - Chrome extension release zip, sha256 file, and `latest-extension.json` are regenerated in `release/` for GitHub Release and manual fallback installs
-- the internal comparison gate reports `current-gap-known`
+- the image evidence gate is current; the internal comparison gate may keep broad V2/video claims blocked without blocking the scoped image release
 - `pnpm release:preflight` runs `pnpm build`, `pnpm test`, `pnpm package:extension`, `pnpm release:quality-gate`, `pnpm release:goal-audit -- --fail-on-incomplete`, and `pnpm release:ci-check` in order
-- `pnpm release:quality-gate` runs the internal comparison gate before `pnpm release:readiness -- --fail-on-not-ready`
+- `pnpm release:quality-gate` verifies pinned image evidence, runs the internal comparison gate as a claim audit, then runs scoped readiness
 - `pnpm release:goal-audit` reports `goal achieved: yes` for the scoped RC objective
 - `pnpm release:ci-check` verifies the GitHub Actions CI run for the current `HEAD`; if no completed successful run exists, release preflight fails closed and prints the failing job/log summary
 - broader video quality claims remain blocked unless the video gates are promoted

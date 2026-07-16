@@ -18,6 +18,8 @@ pnpm install
 pnpm release:preflight
 ```
 
+图片范围发布前，运行 `pnpm release:image-validation` 和 `pnpm release:image-evidence` 刷新证据。质量门依次运行 `pnpm release:image-quality-gate`、作为声明审计的内部对比 gate，以及 `pnpm release:readiness -- --scope image-defaults --fail-on-not-ready`。
+
 预期结果：
 
 - 所有测试通过

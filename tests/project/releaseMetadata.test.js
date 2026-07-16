@@ -54,10 +54,13 @@ test('release checklists should require internal comparison and readiness gates'
     ]);
 
     assert.equal(packageJson.scripts?.['compare:allenk-v2'], 'node scripts/create-allenk-v2-comparison-report.js');
+    assert.equal(packageJson.scripts?.['release:image-validation'], 'node scripts/run-image-release-validation.js');
+    assert.equal(packageJson.scripts?.['release:image-evidence'], 'node scripts/create-image-release-evidence.js');
+    assert.equal(packageJson.scripts?.['release:image-quality-gate'], 'node scripts/check-image-release-evidence.js');
     assert.equal(packageJson.scripts?.['release:readiness'], 'node scripts/create-release-readiness-report.js');
     assert.equal(
         packageJson.scripts?.['release:quality-gate'],
-        'pnpm compare:allenk-v2 -- --fail-on-incomplete && pnpm release:readiness -- --fail-on-not-ready'
+        'pnpm release:image-quality-gate && pnpm compare:allenk-v2 && pnpm release:readiness -- --scope image-defaults --fail-on-not-ready'
     );
     assert.equal(packageJson.scripts?.['release:goal-audit'], 'node scripts/create-release-goal-audit-report.js');
     assert.equal(
@@ -75,7 +78,7 @@ test('release checklists should require internal comparison and readiness gates'
     assert.match(releaseEn, /GitHub Actions CI/);
     assert.match(releaseEn, /internal comparison gate/);
     assert.doesNotMatch(releaseEn, /pnpm compare:allenk-v2/);
-    assert.match(releaseEn, /--fail-on-incomplete/);
+    assert.match(releaseEn, /image-defaults/);
     assert.match(releaseEn, /pnpm release:readiness/);
     assert.match(releaseEn, /--fail-on-not-ready/);
     assert.match(releaseZh, /pnpm release:preflight/);
@@ -85,7 +88,7 @@ test('release checklists should require internal comparison and readiness gates'
     assert.match(releaseZh, /GitHub Actions CI/);
     assert.match(releaseZh, /内部对比 gate/);
     assert.doesNotMatch(releaseZh, /pnpm compare:allenk-v2/);
-    assert.match(releaseZh, /--fail-on-incomplete/);
+    assert.match(releaseZh, /image-defaults/);
     assert.match(releaseZh, /pnpm release:readiness/);
     assert.match(releaseZh, /--fail-on-not-ready/);
 });

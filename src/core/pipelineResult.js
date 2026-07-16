@@ -1,7 +1,7 @@
 import {
     createAcceptedWatermarkMeta,
+    createFailClosedWatermarkMeta,
     createRejectedWatermarkMeta,
-    createUnsafeVisibleResidualWatermarkMeta
 } from './pipelineMeta.js';
 
 export function createRejectedPipelineResult({
@@ -56,7 +56,14 @@ export function createAcceptedPipelineResult({
     alphaAdjustmentStages = null,
     alphaTrialEvents = null,
     alphaMapSource = null,
-    selectionDebug = null
+    selectionDebug = null,
+    bestEffort = false,
+    retryRecommended = null,
+    qualityStatus = null,
+    selectionConfidence = null,
+    selectedCandidate = null,
+    qualitySignals = null,
+    candidateSummaries = null
 } = {}) {
     return {
         imageData: finalImageData,
@@ -84,7 +91,14 @@ export function createAcceptedPipelineResult({
             alphaAdjustmentStages,
             alphaTrialEvents,
             alphaMapSource,
-            selectionDebug
+            selectionDebug,
+            bestEffort,
+            retryRecommended,
+            qualityStatus,
+            selectionConfidence,
+            selectedCandidate,
+            qualitySignals,
+            candidateSummaries
         }),
         debugTimings
     };
@@ -124,23 +138,34 @@ export function createAcceptedPipelineResultFromState({
         alphaAdjustmentStages: traceState.alphaAdjustmentStages,
         alphaTrialEvents: traceState.alphaTrialEvents,
         alphaMapSource: pipelineState.alphaMapSource,
-        selectionDebug
+        selectionDebug,
+        bestEffort: resultContext.bestEffort,
+        retryRecommended: resultContext.retryRecommended,
+        qualityStatus: resultContext.qualityStatus,
+        selectionConfidence: resultContext.selectionConfidence,
+        selectedCandidate: resultContext.selectedCandidate,
+        qualitySignals: resultContext.qualitySignals,
+        candidateSummaries: resultContext.candidateSummaries
     });
 }
 
-export function createUnsafeVisibleResidualPipelineResultFromState({
+export function createFailClosedPipelineResultFromState({
     originalImageData = null,
     pipelineState = {},
     passState = {},
     traceState = {},
     resultContext = {},
     residualVisibility = null,
-    selectionDebug = null
+    selectionDebug = null,
+    reason = 'visible-residual-unsafe-damage',
+    evidenceClass = 'unsafe-visible-residual'
 } = {}) {
     return {
         imageData: originalImageData ?? pipelineState.finalImageData,
-        meta: createUnsafeVisibleResidualWatermarkMeta({
+        meta: createFailClosedWatermarkMeta({
             selectedTrial: resultContext.selectedTrial,
+            reason,
+            evidenceClass,
             position: pipelineState.position,
             config: pipelineState.config,
             adaptiveConfidence: resultContext.adaptiveConfidence,
@@ -165,4 +190,8 @@ export function createUnsafeVisibleResidualPipelineResultFromState({
         }),
         debugTimings: resultContext.debugTimings
     };
+}
+
+export function createUnsafeVisibleResidualPipelineResultFromState(options = {}) {
+    return createFailClosedPipelineResultFromState(options);
 }

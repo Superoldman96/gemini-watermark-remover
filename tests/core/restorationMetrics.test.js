@@ -8,6 +8,7 @@ import {
     assessReferenceTextureAlignmentFromStats,
     assessWatermarkResidualVisibility,
     calculateNearBlackRatio,
+    calculateNearWhiteRatio,
     classifyCalibratedResidualMetricRisk,
     cloneImageData
 } from '../../src/core/restorationMetrics.js';
@@ -109,6 +110,28 @@ test('calculateNearBlackRatio should count only near-black pixels inside the tar
     };
 
     const ratio = calculateNearBlackRatio(imageData, {
+        x: 0,
+        y: 0,
+        width: 2,
+        height: 2
+    });
+
+    assert.equal(ratio, 0.5);
+});
+
+test('calculateNearWhiteRatio should require every color channel to be near white', () => {
+    const imageData = {
+        width: 2,
+        height: 2,
+        data: new Uint8ClampedArray([
+            255, 255, 255, 255,
+            250, 250, 250, 255,
+            255, 249, 255, 255,
+            240, 255, 255, 255
+        ])
+    };
+
+    const ratio = calculateNearWhiteRatio(imageData, {
         x: 0,
         y: 0,
         width: 2,

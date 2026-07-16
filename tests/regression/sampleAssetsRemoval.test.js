@@ -481,7 +481,8 @@ function removeWatermarkLikeEngine(imageData, alpha48, alpha96, alpha96NewMargin
             afterBlackRatio: calculateNearBlackRatio(imageData, position),
             position,
             regionDelta,
-            skipped: true
+            skipped: true,
+            meta: processed.meta
         };
     }
 
@@ -594,7 +595,8 @@ function removeWatermarkLikeEngine(imageData, alpha48, alpha96, alpha96NewMargin
         afterBlackRatio,
         position,
         regionDelta,
-        skipped: false
+        skipped: false,
+        meta: processed.meta
     };
 }
 
@@ -1079,7 +1081,7 @@ test('21-9-preview.png should use fixed preview-anchor without edge cleanup by d
     }
 });
 
-test('non-watermarked synthetic image should keep the candidate region unchanged', async (t) => {
+test('caller-guaranteed Gemini input should return best effort even when synthetic evidence is weak', async (t) => {
     let browser;
     try {
         browser = await chromium.launch({ headless: true });
@@ -1099,13 +1101,13 @@ test('non-watermarked synthetic image should keep the candidate region unchanged
         const imageData = createSolidImageData(1408, 768, 48);
         const result = removeWatermarkLikeEngine(imageData, alpha48, alpha96);
 
+        assert.equal(result.meta.applied, true);
+        assert.equal(result.meta.bestEffort, true);
+        assert.equal(result.meta.retryRecommended, false);
+        assert.notEqual(result.meta.qualityStatus, null);
         assert.ok(
-            result.regionDelta.changedRatio <= 0.01,
-            `expected weak-match region to remain unchanged, changedRatio=${result.regionDelta.changedRatio}, candidateSize=${result.position.width}`
-        );
-        assert.ok(
-            result.regionDelta.avgAbsoluteDeltaPerChannel <= 0.5,
-            `expected weak-match region delta <= 0.5, got ${result.regionDelta.avgAbsoluteDeltaPerChannel}`
+            result.regionDelta.changedRatio > 0,
+            `expected best-effort processing to change the selected region, candidateSize=${result.position.width}`
         );
     } finally {
         await browser.close();

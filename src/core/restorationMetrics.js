@@ -4,6 +4,7 @@ import {
 } from './adaptiveDetector.js';
 
 const NEAR_BLACK_THRESHOLD = 5;
+const NEAR_WHITE_THRESHOLD = 250;
 const TEXTURE_REFERENCE_MARGIN = 1;
 const TEXTURE_STD_FLOOR_RATIO = 0.8;
 const TEXTURE_DARKNESS_VISIBILITY_HARD_REJECT_THRESHOLD = 1.5;
@@ -132,6 +133,25 @@ export function calculateNearBlackRatio(imageData, position) {
     }
 
     return total > 0 ? nearBlack / total : 0;
+}
+
+export function calculateNearWhiteRatio(imageData, position) {
+    let nearWhite = 0;
+    let total = 0;
+    for (let row = 0; row < position.height; row++) {
+        for (let col = 0; col < position.width; col++) {
+            const idx = ((position.y + row) * imageData.width + (position.x + col)) * 4;
+            const r = imageData.data[idx];
+            const g = imageData.data[idx + 1];
+            const b = imageData.data[idx + 2];
+            if (r >= NEAR_WHITE_THRESHOLD && g >= NEAR_WHITE_THRESHOLD && b >= NEAR_WHITE_THRESHOLD) {
+                nearWhite++;
+            }
+            total++;
+        }
+    }
+
+    return total > 0 ? nearWhite / total : 0;
 }
 
 function calculateRegionTextureStats(imageData, region) {

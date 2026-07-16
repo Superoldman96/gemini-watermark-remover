@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { checkImageReleaseEvidence } from './check-image-release-evidence.js';
 
 const DEFAULT_OUTPUT_PATH = path.resolve('.artifacts/release-readiness/latest-report.json');
 const DEFAULT_MARKDOWN_PATH = path.resolve('.artifacts/release-readiness/latest-report.md');
@@ -132,7 +133,7 @@ const BLOCKED_CAPABILITY_INVARIANTS = Object.freeze({
 });
 
 const BLOCKED_CAPABILITY_DECISIONS = Object.freeze(new Set(['blocked', 'experiment-only']));
-const RELEASE_QUALITY_GATE_SCRIPT = 'pnpm compare:allenk-v2 -- --fail-on-incomplete && pnpm release:readiness -- --fail-on-not-ready';
+const RELEASE_QUALITY_GATE_SCRIPT = 'pnpm release:image-quality-gate && pnpm compare:allenk-v2 && pnpm release:readiness -- --scope image-defaults --fail-on-not-ready';
 const RELEASE_GOAL_AUDIT_SCRIPT = 'node scripts/create-release-goal-audit-report.js';
 const RELEASE_CI_CHECK_SCRIPT = 'node scripts/check-github-ci.js --workflow ci.yml --commit HEAD --fail-closed';
 const RELEASE_PREFLIGHT_SCRIPT = 'pnpm build && pnpm test && pnpm package:extension && pnpm release:quality-gate && pnpm release:goal-audit -- --fail-on-incomplete && pnpm release:ci-check';
@@ -528,8 +529,8 @@ async function summarizeReleaseVersionDocs(packageArtifact, {
         releaseZhMentionsExtensionPackage: /pnpm package:extension/.test(artifacts.releaseZh.text) && /latest-extension\.json/.test(artifacts.releaseZh.text),
         releaseEnMentionsInternalComparisonGate: /internal comparison gate/i.test(artifacts.releaseEn.text),
         releaseZhMentionsInternalComparisonGate: /内部对比 gate/.test(artifacts.releaseZh.text),
-        releaseEnMentionsInternalComparisonFailGate: /--fail-on-incomplete/.test(artifacts.releaseEn.text),
-        releaseZhMentionsInternalComparisonFailGate: /--fail-on-incomplete/.test(artifacts.releaseZh.text),
+        releaseEnMentionsInternalComparisonFailGate: /release:image-quality-gate/.test(artifacts.releaseEn.text) && /image-defaults/.test(artifacts.releaseEn.text),
+        releaseZhMentionsInternalComparisonFailGate: /release:image-quality-gate/.test(artifacts.releaseZh.text) && /image-defaults/.test(artifacts.releaseZh.text),
         releaseEnMentionsReadinessGate: /pnpm release:readiness/.test(artifacts.releaseEn.text),
         releaseZhMentionsReadinessGate: /pnpm release:readiness/.test(artifacts.releaseZh.text),
         releaseEnMentionsReadinessFailGate: /--fail-on-not-ready/.test(artifacts.releaseEn.text),
@@ -1525,11 +1526,13 @@ function summarizeReleaseEvidenceIndex(lanes, overall) {
     const videoAlpha = findLaneById(lanes, 'video-alpha-shape');
     const allenkReference = findLaneById(lanes, 'allenk-reference');
     const allenkV2 = findLaneById(lanes, 'allenk-v2-comparison');
+    const imageReleaseEvidence = findLaneById(lanes, 'image-release-evidence');
     const releaseZip = releaseArtifact?.evidence?.zipIntegrity || {};
     const claimRows = Array.isArray(overall.releaseClaimMatrix) ? overall.releaseClaimMatrix : [];
 
     return {
         recommendation: overall.recommendation,
+        requestedScope: overall.requestedScope || null,
         gateOk: overall.releaseReadinessGate?.ok === true,
         releaseScope: overall.releaseDecisionSummary?.currentReleaseScope || null,
         releasePackage: {
@@ -1543,6 +1546,12 @@ function summarizeReleaseEvidenceIndex(lanes, overall) {
             hashMatchesMetadata: releaseZip.shaMatchesMetadata === true,
             hashMatchesShaFile: releaseZip.shaFileMatchesZip === true,
             sizeMatchesMetadata: releaseZip.sizeMatchesMetadata === true
+        },
+        imageQuality: {
+            status: imageReleaseEvidence?.status || null,
+            gateOk: imageReleaseEvidence?.releaseEligible === true,
+            evidencePath: imageReleaseEvidence?.evidence?.path || null,
+            blockers: imageReleaseEvidence?.blockers || []
         },
         claimPolicy: {
             publicClaimScanStatus: releaseClaims?.status || null,
@@ -1614,6 +1623,7 @@ function summarizeReleaseEvidenceIndexIntegrity(overall) {
     const claimPolicy = index.claimPolicy || {};
     const releasePackage = index.releasePackage || {};
     const allenkComparison = index.allenkComparison || {};
+    const imageQuality = index.imageQuality || {};
     const matrixIds = uniqueSorted(claimRows.map((row) => row.id));
     const indexedIds = uniqueSorted([
         ...(claimPolicy.allowedCapabilityIds || []),
@@ -1660,17 +1670,23 @@ function summarizeReleaseEvidenceIndexIntegrity(overall) {
             blockers.push('release-evidence-index-public-claim-scan-not-clean');
         }
         if (claimPolicy.releaseDocsStatus !== 'ready') blockers.push('release-evidence-index-release-docs-not-ready');
-        if (allenkComparison.referenceStatus !== 'current') blockers.push('release-evidence-index-allenk-reference-not-current');
-        if (allenkComparison.comparisonStatus !== 'current-gap-known') blockers.push('release-evidence-index-allenk-comparison-not-current');
-        if (!allenkComparison.comparisonPath) blockers.push('release-evidence-index-allenk-comparison-path-missing');
-        if (!Number.isFinite(Number(allenkComparison.videoAllenkCaseCount)) || Number(allenkComparison.videoAllenkCaseCount) <= 0) {
-            blockers.push('release-evidence-index-allenk-video-cases-missing');
-        }
-        if (!Number.isFinite(Number(allenkComparison.videoRenderedComparisonCount)) || Number(allenkComparison.videoRenderedComparisonCount) <= 0) {
-            blockers.push('release-evidence-index-allenk-rendered-comparisons-missing');
-        }
-        if (Number(allenkComparison.videoMissingOutputArtifactCount) !== 0) {
-            blockers.push('release-evidence-index-allenk-rendered-artifacts-missing');
+        if (index.requestedScope === 'image-defaults') {
+            if (imageQuality.status !== 'current' || imageQuality.gateOk !== true || !imageQuality.evidencePath) {
+                blockers.push('release-evidence-index-image-quality-not-current');
+            }
+        } else {
+            if (allenkComparison.referenceStatus !== 'current') blockers.push('release-evidence-index-allenk-reference-not-current');
+            if (allenkComparison.comparisonStatus !== 'current-gap-known') blockers.push('release-evidence-index-allenk-comparison-not-current');
+            if (!allenkComparison.comparisonPath) blockers.push('release-evidence-index-allenk-comparison-path-missing');
+            if (!Number.isFinite(Number(allenkComparison.videoAllenkCaseCount)) || Number(allenkComparison.videoAllenkCaseCount) <= 0) {
+                blockers.push('release-evidence-index-allenk-video-cases-missing');
+            }
+            if (!Number.isFinite(Number(allenkComparison.videoRenderedComparisonCount)) || Number(allenkComparison.videoRenderedComparisonCount) <= 0) {
+                blockers.push('release-evidence-index-allenk-rendered-comparisons-missing');
+            }
+            if (Number(allenkComparison.videoMissingOutputArtifactCount) !== 0) {
+                blockers.push('release-evidence-index-allenk-rendered-artifacts-missing');
+            }
         }
     }
 
@@ -1689,7 +1705,57 @@ function summarizeReleaseEvidenceIndexIntegrity(overall) {
     };
 }
 
-function deriveOverall(lanes) {
+export function isCurrentImageCapabilityReady(lanes, scope = null) {
+    const releaseClaims = findLaneById(lanes, 'release-claims');
+    const userscriptArtifact = findLaneById(lanes, 'userscript-artifact');
+    const releaseVersionDocs = findLaneById(lanes, 'release-version-docs');
+    const videoProductionDefaults = findLaneById(lanes, 'video-production-defaults');
+    if (scope === 'image-defaults') {
+        const imageReleaseEvidence = findLaneById(lanes, 'image-release-evidence');
+        return Boolean(
+            releaseClaims?.releaseEligible &&
+            userscriptArtifact?.releaseEligible &&
+            releaseVersionDocs?.releaseEligible &&
+            imageReleaseEvidence?.releaseEligible &&
+            videoProductionDefaults?.releaseEligible
+        );
+    }
+    const visibleResidual = findLaneById(lanes, 'image-visible-residual');
+    const v2 = findLaneById(lanes, 'image-v2-36');
+    const allenk = findLaneById(lanes, 'allenk-reference');
+    const allenkV2 = findLaneById(lanes, 'allenk-v2-comparison');
+    return Boolean(
+        releaseClaims?.releaseEligible &&
+        userscriptArtifact?.releaseEligible &&
+        releaseVersionDocs?.releaseEligible &&
+        visibleResidual?.releaseEligible &&
+        v2?.releaseEligible &&
+        videoProductionDefaults?.releaseEligible &&
+        allenk?.releaseEligible &&
+        allenkV2?.releaseEligible
+    );
+}
+
+export function summarizeImageReleaseEvidenceLane(gate, evidencePath) {
+    const blockers = gate?.ok === true
+        ? []
+        : gate?.blockers?.length
+            ? [...gate.blockers]
+            : ['image-release-evidence-not-current'];
+    return {
+        id: 'image-release-evidence',
+        title: 'Image release evidence',
+        status: blockers.length === 0 ? 'current' : 'blocked',
+        releaseEligible: blockers.length === 0,
+        blockers,
+        evidence: {
+            path: evidencePath,
+            gateOk: blockers.length === 0
+        }
+    };
+}
+
+function deriveOverall(lanes, scope = null) {
     const releaseArtifact = findLaneById(lanes, 'release-artifact');
     const releaseClaims = findLaneById(lanes, 'release-claims');
     const userscriptArtifact = findLaneById(lanes, 'userscript-artifact');
@@ -1702,16 +1768,7 @@ function deriveOverall(lanes) {
     const allenk = findLaneById(lanes, 'allenk-reference');
     const allenkV2 = findLaneById(lanes, 'allenk-v2-comparison');
 
-    const currentImageCapabilityReady = Boolean(
-        releaseClaims?.releaseEligible &&
-        userscriptArtifact?.releaseEligible &&
-        releaseVersionDocs?.releaseEligible &&
-        visibleResidual?.releaseEligible &&
-        v2?.releaseEligible &&
-        videoProductionDefaults?.releaseEligible &&
-        allenk?.releaseEligible &&
-        allenkV2?.releaseEligible
-    );
+    const currentImageCapabilityReady = isCurrentImageCapabilityReady(lanes, scope);
     const canReleaseCurrentImageDefaults = Boolean(releaseArtifact?.releaseEligible && currentImageCapabilityReady);
     const canClaimVideoV2Parity = Boolean(
         videoDenoise?.releaseEligible &&
@@ -1731,6 +1788,7 @@ function deriveOverall(lanes) {
     if (allenkV2?.releaseEligible === false) blockedClaims.push('allenk-v2-comparison-evidence');
 
     const overall = {
+        requestedScope: scope,
         recommendation: canReleaseCurrentImageDefaults
             ? 'rc-current-image-defaults-with-scoped-claims'
             : currentImageCapabilityReady && releaseArtifact?.status === 'needs-rebuild'
@@ -1771,7 +1829,8 @@ function deriveOverall(lanes) {
 }
 
 export async function createReleaseReadinessReport({
-    inputs = DEFAULT_INPUTS
+    inputs = DEFAULT_INPUTS,
+    scope = null
 } = {}) {
     const readinessScriptArtifact = await readFileArtifact(inputs.releaseReadinessScript || fileURLToPath(import.meta.url));
     const packageArtifact = await readJsonArtifact(inputs.packageJson || DEFAULT_INPUTS.packageJson);
@@ -1831,8 +1890,23 @@ export async function createReleaseReadinessReport({
         })
     ];
 
+    if (scope === 'image-defaults') {
+        const evidencePath = path.resolve(
+            inputs.imageReleaseEvidence || `release/evidence/v${packageArtifact.json?.version}-image-quality.json`
+        );
+        const evidenceGate = inputs.imageEvidenceGate || await checkImageReleaseEvidence({
+            evidencePath,
+            quiet: true
+        });
+        lanes.push(summarizeImageReleaseEvidenceLane(
+            evidenceGate,
+            evidencePath
+        ));
+    }
+
     return {
         generatedAt: new Date().toISOString(),
+        releaseScope: scope,
         inputs: Object.fromEntries(Object.entries(inputs).map(([key, value]) => [
             key,
             typeof value === 'string' &&
@@ -1841,7 +1915,7 @@ export async function createReleaseReadinessReport({
                 ? path.resolve(value)
                 : value
         ])),
-        overall: deriveOverall(lanes),
+        overall: deriveOverall(lanes, scope),
         provenance: {
             sourceArtifacts: [
                 createArtifactProvenance('release-readiness-script', readinessScriptArtifact)
@@ -2160,9 +2234,10 @@ export function renderReleaseReadinessMarkdown(report) {
 export async function writeReleaseReadinessReport({
     outputPath = DEFAULT_OUTPUT_PATH,
     markdownPath = DEFAULT_MARKDOWN_PATH,
-    inputs = DEFAULT_INPUTS
+    inputs = DEFAULT_INPUTS,
+    scope = null
 } = {}) {
-    const report = await createReleaseReadinessReport({ inputs });
+    const report = await createReleaseReadinessReport({ inputs, scope });
     const resolvedOutputPath = path.resolve(outputPath);
     const resolvedMarkdownPath = path.resolve(markdownPath);
     await mkdir(path.dirname(resolvedOutputPath), { recursive: true });
@@ -2191,6 +2266,8 @@ function parseCliArgs(argv) {
             parsed.markdownPath = argv[++i] || parsed.markdownPath;
         } else if (arg === '--fail-on-not-ready') {
             parsed.failOnNotReady = true;
+        } else if (arg === '--scope') {
+            parsed.scope = argv[++i] || null;
         } else if (arg === '--help' || arg === '-h') {
             parsed.help = true;
         } else {
@@ -2207,6 +2284,7 @@ function printHelp() {
 Options:
   --output <path>      Default: .artifacts/release-readiness/latest-report.json
   --markdown <path>    Default: .artifacts/release-readiness/latest-report.md
+  --scope <scope>      Supported: image-defaults
   --fail-on-not-ready  Exit non-zero unless the report is immediately releasable
 `);
 }

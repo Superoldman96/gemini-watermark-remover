@@ -7,6 +7,7 @@ import {
     createCandidateEvaluation,
     createRejectedDecisionPath,
     hasHighRiskNewMarginPositiveEvidence,
+    shouldFailClosedForUnsafeWeakShiftedCandidate,
     shouldFailClosedForVisibleResidualUnsafeDamage
 } from '../../src/core/candidateEvaluation.js';
 
@@ -106,6 +107,44 @@ test('shouldFailClosedForVisibleResidualUnsafeDamage should allow safe or non-vi
             damage: { safe: false, reason: 'texture' }
         },
         residualVisibility: { visible: true }
+    }), false);
+});
+
+test('shouldFailClosedForUnsafeWeakShiftedCandidate should reject only unsafe weak shifted fallbacks', () => {
+    const unsafeWeakShifted = {
+        provenance: { localShift: true },
+        originalSpatialScore: 0.284,
+        originalGradientScore: 0.004,
+        damage: { safe: false, reason: 'texture' }
+    };
+
+    assert.equal(shouldFailClosedForUnsafeWeakShiftedCandidate({
+        selectedTrial: unsafeWeakShifted
+    }), true);
+    assert.equal(shouldFailClosedForUnsafeWeakShiftedCandidate({
+        selectedTrial: {
+            ...unsafeWeakShifted,
+            damage: { safe: true, reason: null }
+        }
+    }), false);
+    assert.equal(shouldFailClosedForUnsafeWeakShiftedCandidate({
+        selectedTrial: {
+            ...unsafeWeakShifted,
+            provenance: { catalogVariant: true }
+        }
+    }), false);
+    assert.equal(shouldFailClosedForUnsafeWeakShiftedCandidate({
+        selectedTrial: {
+            ...unsafeWeakShifted,
+            originalGradientScore: 0.08
+        }
+    }), false);
+    assert.equal(shouldFailClosedForUnsafeWeakShiftedCandidate({
+        selectedTrial: {
+            ...unsafeWeakShifted,
+            provenance: { sizeJitter: true },
+            originalSpatialScore: 0.4
+        }
     }), false);
 });
 
