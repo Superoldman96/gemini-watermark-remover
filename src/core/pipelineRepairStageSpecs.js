@@ -86,6 +86,7 @@ export function createRepairCleanupPhaseSpecs({
     readState,
     shouldRunEdgeCleanup = false,
     useKnown48EdgeCleanup = false,
+    useStrongUndersizedAdaptiveCleanup = false,
     useV2SmallEdgeCleanup = false,
     usePreviewAnchorFastCleanup = false,
     cleanupConfig = {},
@@ -107,6 +108,8 @@ export function createRepairCleanupPhaseSpecs({
         v2SmallEdgeCleanupMinGradientImprovement,
         v2SmallEdgeCleanupMaxSpatialDrift,
         known48FlatFillMaxAppliedPasses = 1,
+        known48FlatFillMinGradient = 0.28,
+        strongUndersizedFlatFillMinGradient = 0.27,
         known48FlatFillMinGradientImprovement,
         known48FlatFillSecondPassMinGradientImprovement
     } = cleanupConfig;
@@ -168,6 +171,9 @@ export function createRepairCleanupPhaseSpecs({
                         position: state.position,
                         baselineSpatialScore: state.finalProcessedSpatialScore,
                         baselineGradientScore: state.finalProcessedGradientScore,
+                        minBaselineGradient: useStrongUndersizedAdaptiveCleanup
+                            ? strongUndersizedFlatFillMinGradient
+                            : known48FlatFillMinGradient,
                         minGradientImprovement: passIndex === 0
                             ? known48FlatFillMinGradientImprovement
                             : known48FlatFillSecondPassMinGradientImprovement

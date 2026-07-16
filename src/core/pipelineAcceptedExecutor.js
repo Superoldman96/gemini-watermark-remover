@@ -52,6 +52,7 @@ export function runAcceptedAlphaRepairPipeline({
     const {
         usePreviewAnchorFastCleanup,
         useKnown48EdgeCleanup,
+        useStrongUndersizedAdaptiveCleanup,
         useV2SmallEdgeCleanup
     } = cleanupFlags;
     const {
@@ -156,6 +157,7 @@ export function runAcceptedAlphaRepairPipeline({
             readState: readPipelineState,
             shouldRunEdgeCleanup,
             useKnown48EdgeCleanup,
+            useStrongUndersizedAdaptiveCleanup,
             useV2SmallEdgeCleanup,
             usePreviewAnchorFastCleanup,
             cleanupConfig: config.repairCleanupConfig,

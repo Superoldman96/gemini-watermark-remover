@@ -383,6 +383,40 @@ test('createRepairCleanupPhaseSpecs should build dynamic cleanup phase specs', (
     assert.equal(accepted[0].deriveSuppressionGainFromOriginalSpatial, true);
 });
 
+test('known 48 flat fill should lower only the strong undersized entry threshold', () => {
+    for (const [useStrongUndersizedAdaptiveCleanup, expected] of [
+        [false, 0.28],
+        [true, 0.27]
+    ]) {
+        let received = null;
+        const specs = createRepairCleanupPhaseSpecs({
+            readState: () => ({
+                finalImageData: { id: 'image' },
+                alphaMap: 'alpha',
+                position: { x: 1, y: 2, width: 40, height: 40 },
+                finalProcessedSpatialScore: 0.12,
+                finalProcessedGradientScore: 0.277,
+                source: 'adaptive+edge-cleanup'
+            }),
+            useKnown48EdgeCleanup: true,
+            useStrongUndersizedAdaptiveCleanup,
+            cleanupConfig: {
+                known48FlatFillMinGradient: 0.28,
+                strongUndersizedFlatFillMinGradient: 0.27
+            },
+            refiners: {
+                refineKnown48FlatBackgroundResidual: (payload) => {
+                    received = payload.minBaselineGradient;
+                    return null;
+                }
+            }
+        });
+
+        specs.known48FlatFill.createStage(0);
+        assert.equal(received, expected);
+    }
+});
+
 test('createPostLocatedRepairStageSequenceSpecs should build dynamic post-located repair specs', () => {
     const timingAnchors = {};
     const nowValues = [200];

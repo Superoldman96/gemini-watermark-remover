@@ -36,6 +36,7 @@ test('runAcceptedAlphaRepairPipeline should execute accepted stages and expose c
             cleanupFlags: {
                 usePreviewAnchorFastCleanup: false,
                 useKnown48EdgeCleanup: false,
+                useStrongUndersizedAdaptiveCleanup: false,
                 useV2SmallEdgeCleanup: false
             }
         },

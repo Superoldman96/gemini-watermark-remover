@@ -76,6 +76,7 @@ const V2_SMALL_EDGE_CLEANUP_MAX_ABS_SPATIAL = 0.08;
 const V2_SMALL_EDGE_CLEANUP_MIN_GRADIENT_IMPROVEMENT = 0.025;
 const V2_SMALL_EDGE_CLEANUP_MAX_SPATIAL_DRIFT = 0.035;
 const KNOWN_48_FLAT_FILL_MIN_GRADIENT = 0.28;
+const STRONG_UNDERSIZED_FLAT_FILL_MIN_GRADIENT = 0.27;
 const KNOWN_48_FLAT_FILL_MAX_BACKGROUND_STD = 6;
 const KNOWN_48_FLAT_FILL_MIN_GRADIENT_IMPROVEMENT = 0.045;
 const KNOWN_48_FLAT_FILL_SECOND_PASS_MIN_GRADIENT_IMPROVEMENT = 0.025;
@@ -1230,12 +1231,13 @@ function refineKnown48FlatBackgroundResidual({
     position,
     baselineSpatialScore,
     baselineGradientScore,
+    minBaselineGradient = KNOWN_48_FLAT_FILL_MIN_GRADIENT,
     minGradientImprovement = KNOWN_48_FLAT_FILL_MIN_GRADIENT_IMPROVEMENT
 }) {
     if (
         position?.width < KNOWN_48_EDGE_CLEANUP_MIN_SIZE ||
         position?.width > KNOWN_48_EDGE_CLEANUP_MAX_SIZE ||
-        baselineGradientScore < KNOWN_48_FLAT_FILL_MIN_GRADIENT
+        baselineGradientScore < minBaselineGradient
     ) {
         return null;
     }
@@ -4597,6 +4599,8 @@ function createAcceptedPipelineExecutorConfig() {
             v2SmallEdgeCleanupMinGradientImprovement: V2_SMALL_EDGE_CLEANUP_MIN_GRADIENT_IMPROVEMENT,
             v2SmallEdgeCleanupMaxSpatialDrift: V2_SMALL_EDGE_CLEANUP_MAX_SPATIAL_DRIFT,
             known48FlatFillMaxAppliedPasses: KNOWN_48_FLAT_FILL_MAX_APPLIED_PASSES,
+            known48FlatFillMinGradient: KNOWN_48_FLAT_FILL_MIN_GRADIENT,
+            strongUndersizedFlatFillMinGradient: STRONG_UNDERSIZED_FLAT_FILL_MIN_GRADIENT,
             known48FlatFillMinGradientImprovement: KNOWN_48_FLAT_FILL_MIN_GRADIENT_IMPROVEMENT,
             known48FlatFillSecondPassMinGradientImprovement: KNOWN_48_FLAT_FILL_SECOND_PASS_MIN_GRADIENT_IMPROVEMENT
         }
