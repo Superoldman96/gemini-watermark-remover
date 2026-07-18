@@ -64,6 +64,7 @@ export function parseRealPageCopyDownloadCliArgs(argv = []) {
 
   while (args.length > 0) {
     const arg = args.shift();
+    if (arg === '--') continue;
     if (arg === '--cdp') {
       parsed.cdpUrl = normalizeCdpUrl(args.shift());
       continue;

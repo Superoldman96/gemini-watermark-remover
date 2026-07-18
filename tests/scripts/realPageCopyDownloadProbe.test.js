@@ -144,6 +144,17 @@ test('parseRealPageCopyDownloadCliArgs should normalize overrides and exact size
   assert.deepEqual(parsed.expectedDownloadSize, { width: 2816, height: 1536 });
 });
 
+test('parseRealPageCopyDownloadCliArgs should ignore a forwarded pnpm separator', () => {
+  const parsed = parseRealPageCopyDownloadCliArgs([
+    '--',
+    '--expected-clipboard-size', '1408x768',
+    '--expected-download-size', '2816x1536'
+  ]);
+
+  assert.deepEqual(parsed.expectedClipboardSize, { width: 1408, height: 768 });
+  assert.deepEqual(parsed.expectedDownloadSize, { width: 2816, height: 1536 });
+});
+
 test('parseExpectedImageSize should reject malformed or zero dimensions', () => {
   for (const value of ['1408', '0x768', '1408x0', '-1x768', '1408.5x768']) {
     assert.throws(
