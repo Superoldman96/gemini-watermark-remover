@@ -1089,8 +1089,10 @@ export async function processPageImageSource({
   fetchBlobFromBackgroundImpl = fetchBlobFromBackground
 }) {
   const treatAsPreviewSource = shouldTreatPageImageSourceAsPreview(imageElement, sourceUrl);
-  if (treatAsPreviewSource) {
-    if (!isBlobPageImageSource(sourceUrl) && isGeminiDisplayPreviewAssetUrl(sourceUrl)) {
+  const canFallBackToPreviewProcessing = !isBlobPageImageSource(sourceUrl)
+    && isGeminiDisplayPreviewAssetUrl(sourceUrl);
+  if (treatAsPreviewSource || canFallBackToPreviewProcessing) {
+    if (canFallBackToPreviewProcessing) {
       try {
         return await processOriginalPageImageSource({
           sourceUrl,
@@ -1105,8 +1107,8 @@ export async function processPageImageSource({
           rejectPreviewAspectMismatch: true
         });
       } catch {
-        // Fall back to the preview-specific path when the original-quality fetch
-        // is unavailable, invalid, or blocked in the current page context.
+        // Fall back to the preview-specific path when original-quality
+        // acquisition is unavailable, invalid, or blocked.
       }
     }
 

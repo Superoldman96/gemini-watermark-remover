@@ -1105,6 +1105,65 @@ test('processPageImageSource should treat explicitly bound Gemini preview urls a
   });
 });
 
+test('processPageImageSource should fall back to rendered preview when an explicitly bound Gemini preview fetch fails', async () => {
+  const sourceUrl = 'https://lh3.googleusercontent.com/gg/example-token=s1024-rj';
+  const renderedBlob = new Blob(['rendered'], { type: 'image/png' });
+  const processedBlob = new Blob(['processed'], { type: 'image/png' });
+  const imageElement = {
+    dataset: {
+      gwrSourceUrl: sourceUrl
+    }
+  };
+  const calls = [];
+
+  const result = await processPageImageSource({
+    sourceUrl,
+    imageElement,
+    fetchPreviewBlob: async (url) => {
+      calls.push(['preview-fetch', url]);
+      throw new Error('Failed to fetch image: 403');
+    },
+    fetchBlobFromBackgroundImpl: async (url) => {
+      calls.push(['background', url]);
+      throw new Error('Failed to fetch image: 403');
+    },
+    fetchBlobDirectImpl: async () => {
+      throw new Error('direct fetch should not run');
+    },
+    captureRenderedImageBlob: async (image) => {
+      calls.push(['capture', image]);
+      return renderedBlob;
+    },
+    validateBlob: async () => {
+      throw new Error('validation should not run after fetch failure');
+    },
+    removeWatermarkFromBlobImpl: async () => {
+      calls.push('remove');
+      throw new Error('full-strength removal should not run on rendered preview');
+    },
+    processWatermarkBlobImpl: async (blob, options) => {
+      calls.push(['preview-process', blob, options]);
+      return {
+        processedBlob,
+        processedMeta: {
+          applied: true,
+          source: 'standard+preview-anchor+validated'
+        }
+      };
+    }
+  });
+
+  assert.equal(result.skipped, false);
+  assert.equal(result.processedBlob, processedBlob);
+  assert.equal(result.selectedStrategy, 'rendered-capture');
+  assert.deepEqual(calls, [
+    ['background', 'https://lh3.googleusercontent.com/gg/example-token=s0-rj'],
+    ['preview-fetch', 'https://lh3.googleusercontent.com/gg/example-token=s0-rj'],
+    ['capture', imageElement],
+    ['preview-process', renderedBlob, undefined]
+  ]);
+});
+
 test('processPageImageSource should prefer original-quality processing for Gemini preview urls before preview fallback', async () => {
   const sourceUrl = 'https://lh3.googleusercontent.com/gg/example-token=s1024-rj';
   const originalBlob = new Blob(['background'], { type: 'image/jpeg' });
