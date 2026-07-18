@@ -496,6 +496,23 @@ function resolveAlphaMapForSize(size, { alpha48, alpha96, getAlphaMap } = {}) {
     return alpha96 ? interpolateAlphaMap(alpha96, 96, size) : null;
 }
 
+export function resolveSizeJitterAlphaMap(seed, size, {
+    alpha48,
+    alpha96,
+    getAlphaMap,
+    resolveAlphaMap = null
+} = {}) {
+    const seedSize = Number(seed?.position?.width);
+    if (seed?.alphaMap && Number.isFinite(seedSize) && seedSize > 0) {
+        if (size === seedSize) return seed.alphaMap;
+        return interpolateAlphaMap(seed.alphaMap, seedSize, size);
+    }
+
+    return typeof resolveAlphaMap === 'function'
+        ? resolveAlphaMap(size)
+        : resolveAlphaMapForSize(size, { alpha48, alpha96, getAlphaMap });
+}
+
 function resolveAlphaMapForConfig(config, {
     alpha48,
     alpha96,
@@ -1320,11 +1337,35 @@ function compareSameAnchorCandidateRanking(currentBest, candidate) {
     return compareRankingKey(candidate.rankingKey, currentBest.rankingKey);
 }
 
+function shouldPreserveExactNewMarginVariant(exactCandidate, competingCandidate) {
+    const exactConfig = exactCandidate?.config ?? {};
+    const competingConfig = competingCandidate?.config ?? {};
+    const exactVariant = exactConfig.alphaVariant ?? exactCandidate?.provenance?.alphaVariant;
+    const competingVariant = competingConfig.alphaVariant ?? competingCandidate?.provenance?.alphaVariant;
+
+    if (exactCandidate?.accepted !== true || exactCandidate?.damage?.safe !== true) return false;
+    if (exactConfig.logoSize !== 96 || exactConfig.marginRight !== 192 || exactConfig.marginBottom !== 192) {
+        return false;
+    }
+    if (exactVariant !== '20260520') return false;
+    if (competingCandidate?.provenance?.sizeJitter !== true) return false;
+    if (competingConfig.marginRight !== 192 || competingConfig.marginBottom !== 192) return false;
+    if (competingVariant !== exactVariant) return false;
+
+    return !hasMuchStrongerOriginalSignal(competingCandidate, exactCandidate);
+}
+
 export function pickBetterCandidate(currentBest, candidate, minCostDelta = 0.005) {
     if (!candidate?.accepted) return currentBest;
     if (!currentBest) return candidate;
     const evaluationDecision = arbitrateCandidateByEvaluation(currentBest, candidate);
     if (evaluationDecision) return evaluationDecision;
+    if (shouldPreserveExactNewMarginVariant(currentBest, candidate)) {
+        return currentBest;
+    }
+    if (shouldPreserveExactNewMarginVariant(candidate, currentBest)) {
+        return candidate;
+    }
     if (shouldPreserveCatalogOriginalSignal(currentBest, candidate)) {
         return currentBest;
     }
@@ -1975,13 +2016,12 @@ function searchStandardSizeJitterCandidate({
             if (candidatePosition.x + candidatePosition.width > originalImageData.width) continue;
             if (candidatePosition.y + candidatePosition.height > originalImageData.height) continue;
 
-            const candidateAlphaMap = typeof resolveAlphaMap === 'function'
-                ? resolveAlphaMap(size)
-                : resolveAlphaMapForSize(size, {
-                    alpha48,
-                    alpha96,
-                    getAlphaMap
-                });
+            const candidateAlphaMap = resolveSizeJitterAlphaMap(seed, size, {
+                alpha48,
+                alpha96,
+                getAlphaMap,
+                resolveAlphaMap
+            });
             if (!candidateAlphaMap) continue;
 
             const candidate = evaluateRestorationCandidate({
@@ -1990,9 +2030,8 @@ function searchStandardSizeJitterCandidate({
                 position: candidatePosition,
                 source: `${seed.source}+size`,
                 config: {
-                    logoSize: size,
-                    marginRight: seed.config.marginRight,
-                    marginBottom: seed.config.marginBottom
+                    ...seed.config,
+                    logoSize: size
                 },
                 baselineNearBlackRatio: calculateNearBlackRatio(originalImageData, candidatePosition),
                 adaptiveConfidence,

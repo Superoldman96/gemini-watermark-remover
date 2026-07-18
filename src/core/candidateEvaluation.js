@@ -7,6 +7,11 @@ const NEW_MARGIN_96_SIZE = 96;
 const NEW_MARGIN_96_MARGIN = 192;
 const HIGH_RISK_NEW_MARGIN_MIN_SPATIAL = 0.4;
 const HIGH_RISK_NEW_MARGIN_MIN_GRADIENT = 0.08;
+const SAFE_EXACT_NEW_MARGIN_MIN_SPATIAL = 0.18;
+const SAFE_EXACT_NEW_MARGIN_MIN_GRADIENT = 0.05;
+const SAFE_EXACT_NEW_MARGIN_MIN_IMPROVEMENT = 0.1;
+const SAFE_EXACT_NEW_MARGIN_MAX_PROCESSED_SPATIAL = 0.32;
+const SAFE_EXACT_NEW_MARGIN_MAX_PROCESSED_GRADIENT = 0.05;
 const DEFAULT_ALPHA_NEW_MARGIN_MAX_SPATIAL_RESIDUAL = 0.18;
 const DEFAULT_ALPHA_NEW_MARGIN_MAX_GRADIENT_RESIDUAL = 0.08;
 const DEFAULT_ALPHA_NEW_MARGIN_MIN_IMPROVEMENT = 0.12;
@@ -46,6 +51,25 @@ export function isDefaultAlphaNewMarginTrial(candidate) {
         !config.alphaVariant;
 }
 
+function isNewMarginVariantFamilyCandidate(candidate) {
+    const config = getConfig(candidate);
+    const provenance = getProvenance(candidate);
+    return config.marginRight === NEW_MARGIN_96_MARGIN &&
+        config.marginBottom === NEW_MARGIN_96_MARGIN &&
+        (config.alphaVariant === '20260520' || provenance.alphaVariant === '20260520');
+}
+
+function hasSafeExactNewMarginVariantRecovery(candidate) {
+    if (!isNewMarginAlphaVariantTrial(candidate)) return false;
+    if (candidate?.damage?.safe !== true) return false;
+
+    return numberOr(candidate?.originalSpatialScore) >= SAFE_EXACT_NEW_MARGIN_MIN_SPATIAL &&
+        numberOr(candidate?.originalGradientScore) >= SAFE_EXACT_NEW_MARGIN_MIN_GRADIENT &&
+        numberOr(candidate?.improvement, -Infinity) >= SAFE_EXACT_NEW_MARGIN_MIN_IMPROVEMENT &&
+        Math.abs(numberOr(candidate?.processedSpatialScore, Infinity)) <= SAFE_EXACT_NEW_MARGIN_MAX_PROCESSED_SPATIAL &&
+        Math.max(0, numberOr(candidate?.processedGradientScore, Infinity)) <= SAFE_EXACT_NEW_MARGIN_MAX_PROCESSED_GRADIENT;
+}
+
 export function hasClearedResidual(candidate) {
     return candidate?.residual?.cleared === true ||
         candidate?.evaluation?.postResidual?.cleared === true;
@@ -63,10 +87,11 @@ export function hasSafeDefaultAlphaNewMarginResidual(candidate) {
 
 export function hasHighRiskNewMarginPositiveEvidence(candidate) {
     if (getProvenance(candidate).darkPolarity === true) return true;
-    if (!isNewMarginAlphaVariantTrial(candidate) && !isDefaultAlphaNewMarginTrial(candidate)) return true;
+    if (!isNewMarginVariantFamilyCandidate(candidate) && !isDefaultAlphaNewMarginTrial(candidate)) return true;
 
-    return numberOr(candidate?.originalGradientScore) >= HIGH_RISK_NEW_MARGIN_MIN_GRADIENT ||
+    const hasStrongEvidence = numberOr(candidate?.originalGradientScore) >= HIGH_RISK_NEW_MARGIN_MIN_GRADIENT ||
         numberOr(candidate?.originalSpatialScore) >= HIGH_RISK_NEW_MARGIN_MIN_SPATIAL;
+    return hasStrongEvidence || hasSafeExactNewMarginVariantRecovery(candidate);
 }
 
 export function shouldFailClosedForVisibleResidualUnsafeDamage({
@@ -126,7 +151,8 @@ export function createCandidateEvaluation({
         originalGradientScore: originalScores?.gradientScore,
         processedSpatialScore: processedScores?.spatialScore,
         processedGradientScore: processedScores?.gradientScore,
-        improvement
+        improvement,
+        damage
     };
     const originalSpatial = numberOr(originalScores?.spatialScore);
     const originalGradient = numberOr(originalScores?.gradientScore);

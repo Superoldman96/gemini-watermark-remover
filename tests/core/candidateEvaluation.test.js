@@ -74,6 +74,51 @@ test('createCandidateEvaluation should allow strong 96px new-margin evidence', (
     }), true);
 });
 
+test('createCandidateEvaluation should admit safe paired evidence for an exact new-margin variant', () => {
+    const samples = [
+        {
+            originalScores: { spatialScore: 0.1831, gradientScore: 0.0658 },
+            processedScores: { spatialScore: 0.0681, gradientScore: 0.0314 },
+            improvement: 0.115
+        },
+        {
+            originalScores: { spatialScore: 0.3986, gradientScore: 0.0531 },
+            processedScores: { spatialScore: 0.2916, gradientScore: 0.0231 },
+            improvement: 0.107
+        }
+    ];
+
+    for (const sample of samples) {
+        const evaluation = createAlwaysPassingEvaluation({
+            ...sample,
+            damage: { safe: true, penalty: 0.02 }
+        });
+
+        assert.equal(evaluation.eligible, true, JSON.stringify(sample));
+        assert.equal(evaluation.blockedGate, null);
+    }
+});
+
+test('createCandidateEvaluation should not apply exact-variant recovery to a size-jitter descendant', () => {
+    const evaluation = createAlwaysPassingEvaluation({
+        config: {
+            ...NEW_MARGIN_ALPHA_VARIANT,
+            logoSize: 88
+        },
+        provenance: {
+            alphaVariant: '20260520',
+            sizeJitter: true
+        },
+        originalScores: { spatialScore: 0.3536, gradientScore: 0.0218 },
+        processedScores: { spatialScore: 0.0851, gradientScore: 0.0966 },
+        improvement: 0.2685,
+        damage: { safe: true, penalty: 0.02 }
+    });
+
+    assert.equal(evaluation.eligible, false);
+    assert.equal(evaluation.blockedGate, 'highRiskNewMarginEvidenceAllowed');
+});
+
 test('shouldFailClosedForVisibleResidualUnsafeDamage should reject issue 103 unsafe visible residual', () => {
     assert.equal(shouldFailClosedForVisibleResidualUnsafeDamage({
         selectedTrial: {

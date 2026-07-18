@@ -4,6 +4,7 @@ import path from 'node:path';
 import { access } from 'node:fs/promises';
 
 import { calculateAlphaMap } from '../../src/core/alphaMap.js';
+import { removeWatermark } from '../../src/core/blendModes.js';
 import { getEmbeddedAlphaMap } from '../../src/core/embeddedAlphaMaps.js';
 import { processWatermarkImageData } from '../../src/core/watermarkProcessor.js';
 import { interpolateAlphaMap, warpAlphaMap, computeRegionSpatialCorrelation } from '../../src/core/adaptiveDetector.js';
@@ -22,6 +23,39 @@ const EXTERNAL_SAMPLE_ROOT = path.resolve(process.env.GWR_SAMPLE_ROOT || 'sample
 
 function externalSamplePath(...segments) {
     return path.resolve(EXTERNAL_SAMPLE_ROOT, ...segments);
+}
+
+function cloneImageDataForIssue111(imageData) {
+    return {
+        width: imageData.width,
+        height: imageData.height,
+        data: new Uint8ClampedArray(imageData.data)
+    };
+}
+
+function measureIssue111ReferenceDelta(actual, expected) {
+    const left = actual.width - 304;
+    const top = actual.height - 304;
+    const size = 128;
+    const deltas = [];
+    let total = 0;
+
+    for (let y = top; y < top + size; y++) {
+        for (let x = left; x < left + size; x++) {
+            const index = (y * actual.width + x) * 4;
+            for (let channel = 0; channel < 3; channel++) {
+                const delta = Math.abs(actual.data[index + channel] - expected.data[index + channel]);
+                deltas.push(delta);
+                total += delta;
+            }
+        }
+    }
+
+    deltas.sort((a, b) => a - b);
+    return {
+        meanAbsoluteDelta: total / deltas.length,
+        p95Delta: deltas[Math.floor(deltas.length * 0.95)]
+    };
 }
 
 test('processWatermarkImageData should run in Node without asset imports and record single-pass meta', () => {
@@ -2348,6 +2382,63 @@ test('processWatermarkImageData should repair small located online residuals wit
             result.meta.detection.processedGradientScore <= 0.24,
             `processedGradient=${result.meta.detection.processedGradientScore}`
         );
+    }
+});
+
+test('processWatermarkImageData should keep issue 111 new-margin samples on the exact variant anchor', async () => {
+    const alpha48 = getEmbeddedAlphaMap(48);
+    const alpha96 = getEmbeddedAlphaMap(96);
+    const alpha96NewMargin = calculateAlphaMap(
+        await decodeImageDataInNode(path.resolve('src/assets/bg_96_20260520.png'))
+    );
+    const cases = [
+        { fileName: 'issue111-2752x1536.png', x: 2464 },
+        { fileName: 'issue111-2816x1536.png', x: 2528 }
+    ];
+
+    for (const item of cases) {
+        const imageData = await decodeImageDataInNode(path.resolve('tests/fixtures', item.fileName));
+        const reference = cloneImageDataForIssue111(imageData);
+        const position = { x: item.x, y: 1248, width: 96, height: 96 };
+        removeWatermark(reference, alpha96NewMargin, position);
+
+        const result = processWatermarkImageData(imageData, {
+            alpha48,
+            alpha96,
+            alpha96Variants: {
+                '20260520': alpha96NewMargin
+            },
+            getAlphaMap: (size) => size === 48
+                ? alpha48
+                : interpolateAlphaMap(alpha96, 96, size)
+        });
+        const delta = measureIssue111ReferenceDelta(result.imageData, reference);
+
+        assert.equal(result.meta.applied, true, `${item.fileName}: skipReason=${result.meta.skipReason}`);
+        assert.deepEqual(result.meta.config, {
+            logoSize: 96,
+            marginRight: 192,
+            marginBottom: 192,
+            alphaVariant: '20260520'
+        }, `${item.fileName}: config=${JSON.stringify(result.meta.config)}`);
+        assert.deepEqual(result.meta.position, position, `${item.fileName}: position=${JSON.stringify(result.meta.position)}`);
+        assert.equal(result.meta.selectionDebug?.usedSizeJitter, false);
+        assert.equal(result.meta.decisionPath?.detectionCandidate?.provenance?.alphaVariant, '20260520');
+        assert.equal(
+            String(result.meta.source).includes('+located-aggressive'),
+            false,
+            `${item.fileName}: source=${result.meta.source}`
+        );
+        assert.equal(
+            result.meta.selectionDebug?.damage?.safe,
+            true,
+            `${item.fileName}: damage=${JSON.stringify(result.meta.selectionDebug?.damage)}`
+        );
+        assert.ok(
+            delta.meanAbsoluteDelta <= 2.5,
+            `${item.fileName}: meanAbsoluteDelta=${delta.meanAbsoluteDelta}`
+        );
+        assert.ok(delta.p95Delta <= 16, `${item.fileName}: p95Delta=${delta.p95Delta}`);
     }
 });
 

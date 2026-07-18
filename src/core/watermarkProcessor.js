@@ -2652,14 +2652,6 @@ function shouldSkipLocatedAggressiveForCleanCanonical96({
     currentSpatialScore,
     currentGradientScore
 }) {
-    if (
-        config?.logoSize !== 96 ||
-        config.marginRight !== 64 ||
-        config.marginBottom !== 64
-    ) {
-        return false;
-    }
-
     const resolvedAlphaGain = Number(alphaGain);
     const originalSpatial = Number(originalSpatialScore);
     const originalGradient = Number(originalGradientScore);
@@ -2671,6 +2663,26 @@ function shouldSkipLocatedAggressiveForCleanCanonical96({
         !Number.isFinite(originalGradient) ||
         !Number.isFinite(currentSpatial) ||
         !Number.isFinite(currentGradient)
+    ) {
+        return false;
+    }
+
+    const cleanExactNewMarginVariant =
+        config?.logoSize === 96 &&
+        config.marginRight === 192 &&
+        config.marginBottom === 192 &&
+        config.alphaVariant === '20260520' &&
+        resolvedAlphaGain <= 1.3 &&
+        originalSpatial >= 0.18 &&
+        originalSpatial < 0.4 &&
+        originalGradient >= 0.05 &&
+        originalGradient < 0.08;
+    if (cleanExactNewMarginVariant) return true;
+
+    if (
+        config?.logoSize !== 96 ||
+        config.marginRight !== 64 ||
+        config.marginBottom !== 64
     ) {
         return false;
     }

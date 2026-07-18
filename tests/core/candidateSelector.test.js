@@ -34,6 +34,37 @@ function createPaleFlatImageData(width, height) {
     return { width, height, data };
 }
 
+test('size-jitter alpha resolution should interpolate the seed variant instead of the default profile', async () => {
+    const candidateSelector = await import('../../src/core/candidateSelector.js');
+    assert.equal(typeof candidateSelector.resolveSizeJitterAlphaMap, 'function');
+
+    const defaultAlpha = createSyntheticAlphaMap(96);
+    const variantAlpha = new Float32Array(defaultAlpha.length);
+    for (let index = 0; index < defaultAlpha.length; index++) {
+        variantAlpha[index] = defaultAlpha[index] * 0.37;
+    }
+    const seed = {
+        alphaMap: variantAlpha,
+        position: { x: 0, y: 0, width: 96, height: 96 },
+        config: {
+            logoSize: 96,
+            marginRight: 192,
+            marginBottom: 192,
+            alphaVariant: '20260520'
+        }
+    };
+
+    const actual = candidateSelector.resolveSizeJitterAlphaMap(seed, 88, {
+        alpha48: interpolateAlphaMap(defaultAlpha, 96, 48),
+        alpha96: defaultAlpha,
+        getAlphaMap: (size) => interpolateAlphaMap(defaultAlpha, 96, size),
+        resolveAlphaMap: (size) => interpolateAlphaMap(defaultAlpha, 96, size)
+    });
+    const expected = interpolateAlphaMap(variantAlpha, 96, 88);
+
+    assert.deepEqual(actual, expected);
+});
+
 test('evaluateRestorationCandidate should reject weak nearby dark-polarity trials that create a near-white block', async () => {
     const imageData = await decodeImageDataInNode(path.resolve(
         'tests/fixtures/issue101-weak-dark-polarity-damage.png'
@@ -930,6 +961,51 @@ test('pickBetterCandidate should preserve a strong default anchor against weak s
     const selected = pickBetterCandidate(defaultAnchorCandidate, weakSizeJitterCandidate, 0.002);
 
     assert.equal(selected, defaultAnchorCandidate);
+});
+
+test('pickBetterCandidate should preserve a safe exact new-margin variant over a size-jitter descendant', () => {
+    const exactCandidate = {
+        accepted: true,
+        source: 'standard+catalog+validated',
+        config: {
+            logoSize: 96,
+            marginRight: 192,
+            marginBottom: 192,
+            alphaVariant: '20260520'
+        },
+        provenance: { alphaVariant: '20260520' },
+        validationCost: 0.231,
+        improvement: 0.115,
+        originalSpatialScore: 0.1831,
+        originalGradientScore: 0.0658,
+        processedSpatialScore: 0.0681,
+        processedGradientScore: 0.0314,
+        damage: { safe: true, penalty: 0.02 }
+    };
+    const jitterCandidate = {
+        accepted: true,
+        source: 'standard+catalog+size+validated',
+        config: {
+            logoSize: 108,
+            marginRight: 192,
+            marginBottom: 192,
+            alphaVariant: '20260520'
+        },
+        provenance: {
+            alphaVariant: '20260520',
+            sizeJitter: true
+        },
+        validationCost: 0.058,
+        improvement: 0.167,
+        originalSpatialScore: 0.2012,
+        originalGradientScore: -0.0064,
+        processedSpatialScore: 0.0342,
+        processedGradientScore: 0.044,
+        damage: { safe: true, penalty: 0.01 }
+    };
+
+    assert.equal(pickBetterCandidate(exactCandidate, jitterCandidate, 0.002), exactCandidate);
+    assert.equal(pickBetterCandidate(jitterCandidate, exactCandidate, 0.002), exactCandidate);
 });
 
 test('pickBetterCandidate should preserve a clean default anchor against weaker warp evidence', () => {
