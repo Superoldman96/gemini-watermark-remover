@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.0.31 - 2026-07-18
+
+### Watermark Removal
+
+- Fixed issue #111 by preserving the exact 96px Gemini watermark profile at the confirmed 192px right/bottom anchor, including the 2816x1536 output family.
+- Kept the canonical 64px anchor first and required candidate evidence before accepting the secondary 192px anchor.
+- Improved processing coverage for related new-margin and outline variants while keeping difficult visible-residual cases best-effort instead of loosening content-protection gates.
+
+### Copy and Download
+
+- Hardened bound-preview fallback so a failed preview fetch can recover without overwriting the original-image slot used by full-size downloads.
+- Isolated clipboard fallback results from native full-size download bindings and retained passive interception of Gemini's native download chain.
+- Added a repeatable real-page probe covering clipboard dimensions, full-size download dimensions, Gemini RPC discovery, asset requests, dialogs, and request failures.
+
+### Quality
+
+- Verified the current fixed-profile flow with a processed 1408x768 clipboard image and a processed 2816x1536 native download, with no failure dialogs or request failures.
+- Re-ran the complete automated suite and production build after the issue #111 and request-layer changes.
+
 ## 1.0.30 - 2026-07-16
 
 ### Watermark Removal
